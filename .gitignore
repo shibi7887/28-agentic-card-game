@@ -7,3 +7,4 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .slim/deepwork/
+28_game_docs/

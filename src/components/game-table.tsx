@@ -573,7 +573,7 @@ export default function GameTable({
             bidAmount={view.roundResult.bidAmount}
             biddingTeamPoints={view.roundResult.biddingTeamPoints}
             defendingTeamPoints={view.roundResult.defendingTeamPoints}
-            doubled={view.roundResult.doubled}
+            pointsChange={view.roundResult.pointsChange}
             humanTeam={humanTeam}
             winner={view.winner}
             onNextRound={() => onMove({ type: "nextRound" })}

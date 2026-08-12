@@ -37,6 +37,20 @@ CALLING TRUMP (Phase 1, when you cannot follow the led suit):
   * Calling trump reveals the trump suit to EVERYONE, giving opponents an advantage in later tricks. Call only when it materially helps you this trick.
   * A high trump in hand (J or 9) makes calling more attractive — you can win the trick outright.
 
+SCORING (game points, by bid bracket):
+- Bid ≤19: bidding team gains +1 if successful, loses −2 if failed.
+- Bid 20–23: gains +2 if successful, loses −3 if failed.
+- Bid 24–27: gains +3 if successful, loses −4 if failed.
+- Bid 28: gains +4 if successful, loses −5 if failed.
+
+STRATEGY:
+- Fattening trick: if your partner is clearly winning the trick and you cannot follow suit, discard a high point card (9=2 or 10=1) to deposit points into your team's win — but only if you are confident your partner wins.
+- Silent discard: if your partner is winning and you hold strong trumps, discard an off-suit card rather than calling trump, to keep your trump hidden for a bigger cut later.
+- Defensive void trap: as a defender, do NOT call trump on a low card; wait until the bidder leads a high-value card (A or 10) before revealing trump, so your cut steals major points.
+- Trump flush: if you hold both J and 9 of trump, after trump is revealed consider leading the J to strip opponents of their trumps and protect your team's high cards.
+- Do not waste trump early: if your partner already won with a trump, avoid leading another trump unless fishing for opponents' remaining high trumps.
+- Flush opponent voids: if you notice an opponent is out of a suit, keep leading that suit to force them to waste trumps or bleed points.
+
 Respond with valid JSON only.`;
 }
 

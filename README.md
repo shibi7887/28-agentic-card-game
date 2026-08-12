@@ -112,19 +112,36 @@ Twenty-eight is a 4-player trick-taking card game played with 32 cards (J, 9, A,
 
 - **Total points in deck:** 28 (hence the name)
 - **Teams:** You + Raman (North) vs Krishnan (East) + Kunjappu (West)
-- **Bidding:** Minimum 14, maximum 28. Highest bidder chooses trump.
-- **Phase 1:** Trump is face-down. Trump cards have no special power.
-- **Phase 2:** After trump is called, trump beats all other suits.
-- **Scoring:** First team to ±6 game points wins the match.
-- **Pair Rule:** Holding both K and Q of trump adjusts the bid by ±4.
+- **Direction:** Play and deal are counter-clockwise.
+- **Bidding:** Starts at 14 (from dealer's right), maximum 28. Highest bidder chooses trump.
+- **Trump:** The bidder places a trump-suit card face-down. Trump is a **suit** — any card of that suit beats all other suits once revealed.
+- **Phase 1:** Trump is face-down. Trump cards have no special power. The bidder cannot lead trump until it's revealed.
+- **Phase 2:** After trump is called, any trump card beats all non-trump; must follow suit if possible.
+- **Rebid:** After all 8 cards are dealt, the bidder or partner may raise to at least **23**.
+- **Pair Rule:** Holding both K and Q of trump adjusts the bid by ±4 (bidder −4, defender +4).
+- **Match win:** First team to +6 game points wins; −6 loses.
+
+### Scoring (game points by bid bracket)
+
+| Bid | Win | Lose |
+|-----|-----|------|
+| ≤19 | +1 | −2 |
+| 20–23 | +2 | −3 |
+| 24–27 | +3 | −4 |
+| 28 | +4 | −5 |
+
+The bidding team's game points change by the bracket value; the defending team's score is unaffected.
 
 ### Controls
 
 - **Bidding:** Click a number (14–28) from the grid. Click PASS to drop out.
+- **Rebid:** After the 8-card deal, click 23+ to raise or PASS.
 - **Playing:** Click a card in your hand to select it, then click **Play Card**.
 - **Trump Selection:** After winning the bid, click a card from your hand.
 - **Call Trump:** Available when you can't follow suit in Phase 1.
 - **Show Pair:** Available when holding K+Q of the trump suit.
+- **Peek Trump:** Click the face-down trump badge to peek at your own trump card.
+- **Points toggle:** Click the "Points" pill below the header to show/hide running card points per team.
 
 ### AI Agents
 

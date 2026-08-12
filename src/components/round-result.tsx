@@ -8,7 +8,7 @@ interface RoundResultProps {
   bidAmount: number;
   biddingTeamPoints: number;
   defendingTeamPoints: number;
-  doubled: boolean;
+  pointsChange: number;
   humanTeam: TeamIndex;
   winner: TeamIndex | null;
   onNextRound: () => void;
@@ -20,14 +20,13 @@ export default function RoundResult({
   bidAmount,
   biddingTeamPoints,
   defendingTeamPoints,
-  doubled,
+  pointsChange,
   humanTeam,
   winner,
   onNextRound,
   onExit,
 }: RoundResultProps) {
   const matchEnd = winner !== null;
-  const weAreBiddingTeam = humanTeam === 0;
 
   return (
     <motion.div
@@ -99,18 +98,6 @@ export default function RoundResult({
                 {biddingTeamWon ? "Bid Made!" : "Bid Failed"}
               </motion.p>
 
-              {doubled && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: [0, 1.25, 1] }}
-                  transition={{ delay: 0.5, duration: 0.5 }}
-                  className="mt-2 inline-block rounded-full px-3 py-1 font-display text-xs font-bold uppercase tracking-[0.2em] text-[var(--frame)]"
-                  style={{ background: "linear-gradient(180deg, #ffb45e, #d97b12)" }}
-                >
-                  Doubled!
-                </motion.span>
-              )}
-
               <div className="mt-4 space-y-1.5 font-ui text-sm">
                 <div className="flex items-center justify-between text-[var(--cream)]/80">
                   <span>Bid</span>
@@ -125,14 +112,14 @@ export default function RoundResult({
                   <span className="font-bold text-[var(--cream)]">{defendingTeamPoints} pts</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-[var(--gold)]/25 pt-1.5">
-                  <span className="text-[var(--cream)]/60">Your team gained</span>
+                  <span className="text-[var(--cream)]/60">Bidding team {biddingTeamWon ? "gained" : "lost"}</span>
                   <motion.span
-                    key={`${biddingTeamWon}-${weAreBiddingTeam}`}
+                    key={`${biddingTeamWon}-${pointsChange}`}
                     initial={{ scale: 1.6, color: "#ffe6b0" }}
-                    animate={{ scale: 1, color: "var(--gold)" }}
+                    animate={{ scale: 1, color: biddingTeamWon ? "var(--gold)" : "#e07a5f" }}
                     className="font-display text-lg font-bold"
                   >
-                    {weAreBiddingTeam === biddingTeamWon ? "+1" : "-1"}
+                    {pointsChange > 0 ? `+${pointsChange}` : pointsChange}
                   </motion.span>
                 </div>
               </div>

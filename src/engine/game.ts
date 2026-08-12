@@ -149,7 +149,7 @@ function getRebiddingMoves(state: GameState): LegalMove[] {
 
   const moves: LegalMove[] = [];
   const currentBid = state.bid?.amount ?? 0;
-  const minBid = Math.max(24, currentBid + 1);
+  const minBid = Math.max(23, currentBid + 1);
 
   for (let amount = minBid; amount <= 28; amount++) {
     moves.push({ type: 'bid', amount });
@@ -623,30 +623,27 @@ export function computeRoundResult(state: GameState): GameState {
   const biddingTeamPoints = bidderTeam === 0 ? team0Points : team1Points;
   const defendingTeamPoints = bidderTeam === 0 ? team1Points : team0Points;
   const biddingTeamWon = biddingTeamPoints >= bid.amount;
-  const doubled = !biddingTeamWon && biddingTeamPoints < Math.ceil(bid.amount / 2);
+
+  // Tiered scoring by bid bracket (Kerala / Feathersoft rules)
+  let pointsChange: number;
+  if (bid.amount <= 19)      pointsChange = biddingTeamWon ? 1 : -2;
+  else if (bid.amount <= 23) pointsChange = biddingTeamWon ? 2 : -3;
+  else if (bid.amount <= 27) pointsChange = biddingTeamWon ? 3 : -4;
+  else                       pointsChange = biddingTeamWon ? 4 : -5;
 
   s.roundResult = {
     biddingTeamWon,
     bidAmount: bid.amount,
     biddingTeamPoints,
     defendingTeamPoints,
-    doubled,
+    pointsChange,
   };
 
-  // Update scores
-  const pointsChange = doubled ? 2 : 1;
-  if (biddingTeamWon) {
-    if (bidderTeam === 0) {
-      s.scores = { ...s.scores, team0: s.scores.team0 + pointsChange };
-    } else {
-      s.scores = { ...s.scores, team1: s.scores.team1 + pointsChange };
-    }
+  // Update scores — bidding team gains/loses the bracket value
+  if (bidderTeam === 0) {
+    s.scores = { ...s.scores, team0: s.scores.team0 + pointsChange };
   } else {
-    if (bidderTeam === 0) {
-      s.scores = { ...s.scores, team0: s.scores.team0 - pointsChange };
-    } else {
-      s.scores = { ...s.scores, team1: s.scores.team1 - pointsChange };
-    }
+    s.scores = { ...s.scores, team1: s.scores.team1 + pointsChange };
   }
 
   // Check match end

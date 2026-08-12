@@ -51,7 +51,7 @@ export interface GameState {
     bidAmount: number;
     biddingTeamPoints: number;
     defendingTeamPoints: number;
-    doubled: boolean;
+    pointsChange: number;   // game points the bidding team gains (+) or loses (−), per bid bracket
   } | null;
   winner: TeamIndex | null;
   trickNumber: number;
