@@ -1,0 +1,156 @@
+// Server-side game state store — simple in-memory Map
+// In production, replace with Redis or database
+
+import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
+import { createGame, applyMove, getPlayerView } from '@/engine/game';
+import { getAgentProfile } from '@/agents/profiles';
+import { getAgentDecision } from '@/agents/pipeline';
+
+interface StoredGame {
+  state: GameState;
+  humanPlayer: PlayerIndex;
+  agentIds: Record<number, string>; // player index → agent profile ID
+  locked: boolean;                  // prevents concurrent mutation
+}
+
+const gameStore = new Map<string, StoredGame>();
+
+export function createNewGame(): { gameId: string; view: PlayerViewState } {
+  const gameId = crypto.randomUUID();
+  const state = createGame(0);
+  const humanPlayer = 0 as PlayerIndex; // Human always plays as player 0 (South)
+
+  const stored: StoredGame = {
+    state,
+    humanPlayer,
+    agentIds: {
+      1: 'opponent1', // East (Krishnan)
+      2: 'partner',   // North (Raman)
+      3: 'opponent2', // West (Kunjappu)
+    },
+    locked: false,
+  };
+
+  gameStore.set(gameId, stored);
+  const view = getPlayerView(state, humanPlayer);
+
+  return { gameId, view };
+}
+
+export function getGame(gameId: string): StoredGame | undefined {
+  return gameStore.get(gameId);
+}
+
+export function getGameState(gameId: string): GameState | null {
+  return gameStore.get(gameId)?.state ?? null;
+}
+
+export function getHumanView(gameId: string): PlayerViewState | null {
+  const game = gameStore.get(gameId);
+  if (!game) return null;
+  return getPlayerView(game.state, game.humanPlayer);
+}
+
+export function processHumanMove(
+  gameId: string,
+  move: Parameters<typeof applyMove>[1],
+): { view: PlayerViewState; agentThinking: AgentAction[] } | { error: string } {
+  const game = gameStore.get(gameId);
+  if (!game) return { error: 'Game not found' };
+
+  try {
+    game.state = applyMove(game.state, move);
+    const view = getPlayerView(game.state, game.humanPlayer);
+    return { view, agentThinking: [] };
+  } catch (e) {
+    return { error: 'Invalid move' };
+  }
+}
+
+export interface AgentAction {
+  player: PlayerIndex;
+  agentName: string;
+  move: ReturnType<typeof applyMove> extends GameState ? unknown : never;
+  reasoning: string;
+}
+
+/** Process a single agent turn — used by polling endpoint for non-blocking updates */
+export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | null> {
+  const game = gameStore.get(gameId);
+  if (!game || game.locked) return null;
+  if (game.state.currentPlayer === game.humanPlayer) return null;
+  if (game.state.phase === 'finished') return null;
+
+  const player = game.state.currentPlayer;
+  const agentId = game.agentIds[player];
+  if (!agentId) return null;
+
+  game.locked = true;
+  try {
+    const profile = getAgentProfile(agentId);
+    const playerView = getPlayerView(game.state, player);
+    const { move, reasoning } = await getAgentDecision(profile, playerView);
+    game.state = applyMove(game.state, move);
+    game.locked = false;
+
+    return {
+      player,
+      agentName: profile.name,
+      move,
+      reasoning,
+    };
+  } catch (e) {
+    game.locked = false;
+    throw e;
+  }
+}
+
+export async function runAgentTurns(gameId: string): Promise<{
+  view: PlayerViewState;
+  agentActions: AgentAction[];
+}> {
+  const game = gameStore.get(gameId);
+  if (!game) throw new Error('Game not found');
+
+  // Prevent concurrent agent processing
+  if (game.locked) {
+    // Already running agents — return current view
+    return {
+      view: getPlayerView(game.state, game.humanPlayer),
+      agentActions: [],
+    };
+  }
+
+  game.locked = true;
+  const agentActions: AgentAction[] = [];
+
+  // Loop until it's the human's turn or game ends
+  while (
+    game.state.currentPlayer !== game.humanPlayer &&
+    game.state.phase !== 'finished'
+  ) {
+    const player = game.state.currentPlayer;
+    const agentId = game.agentIds[player];
+    if (!agentId) break; // No agent for this player
+
+    const profile = getAgentProfile(agentId);
+    const playerView = getPlayerView(game.state, player);
+
+    const { move, reasoning } = await getAgentDecision(profile, playerView);
+    game.state = applyMove(game.state, move);
+
+    agentActions.push({
+      player,
+      agentName: profile.name,
+      move,
+      reasoning,
+    });
+
+    // Safety: prevent infinite loops
+    if (agentActions.length > 50) break;
+  }
+
+  game.locked = false;
+  const view = getPlayerView(game.state, game.humanPlayer);
+  return { view, agentActions };
+}

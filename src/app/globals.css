@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: var(--font-cinzel), Georgia, "Times New Roman", serif;
+  --font-card: var(--font-playfair), Georgia, "Times New Roman", serif;
+  --font-ui: var(--font-jost), "Segoe UI", system-ui, sans-serif;
+
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.8s linear infinite;
+  --animate-float-slow: float-slow 7s ease-in-out infinite;
+  --animate-dot: dot-bounce 1.2s ease-in-out infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-trump-pulse: trump-pulse 2.4s ease-in-out infinite;
+}
+
+:root {
+  --felt: #114a39;
+  --felt-dark: #0b1e08;
+  --frame: #1f1307;
+  --header: #6e2d0d;
+  --gold: #e0a040;
+  --gold-bright: #f79e42;
+  --gold-dark: #473f01;
+  --cream: #f3f2e0;
+  --cream-dark: #f4e0af;
+  --card-face: #f0d3ab;
+  --card-back: #723113;
+  --card-back-dark: #4a1e0a;
+  --bid-btn: #670000;
+  --btn-dark: #4e1f03;
+  --btn-gradient-from: #8c4006;
+  --btn-gradient-to: #f79e42;
+
+  /* Card geometry — scales with viewport */
+  --card-w: clamp(2.5rem, 9vw, 4.5rem);
+  --card-h: calc(var(--card-w) * 1.42);
+  --card-r: max(0.32rem, calc(var(--card-w) * 0.13));
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 160, 64, 0.55); }
+  50% { box-shadow: 0 0 0 9px rgba(224, 160, 64, 0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(var(--float-rot, 0deg)); }
+  50% { transform: translateY(-7px) rotate(var(--float-rot, 0deg)); }
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes trump-pulse {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(224, 160, 64, 0.35)); }
+  50% { filter: drop-shadow(0 0 10px rgba(224, 160, 64, 0.9)); }
+}
+
+body {
+  background: var(--frame);
+  color: var(--cream);
+  font-family: var(--font-ui);
+}
+
+/* ── Felt table surface ─────────────────────────────── */
+.felt {
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 42%, rgba(255, 255, 255, 0.045), transparent 55%),
+    radial-gradient(ellipse at 50% 45%, var(--felt) 0%, var(--felt-dark) 72%, var(--frame) 105%);
+}
+
+/* ── Fine grain overlay (SVG noise, pure CSS) ───────── */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+}
+
+/* ── Engraved gold gradient text ────────────────────── */
+.gold-text {
+  background: linear-gradient(180deg, #ffe6b0 0%, var(--gold) 45%, #9c6a1e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Card back crosshatch pattern ───────────────────── */
+.card-back-pattern {
+  background-color: var(--card-back);
+  background-image:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 7px),
+    radial-gradient(ellipse at 50% 30%, rgba(255, 235, 190, 0.08), transparent 65%);
+}
+
+/* ── Diamond medallion border ───────────────────────── */
+.medallion-border {
+  background:
+    linear-gradient(45deg, var(--gold) 0%, #7a5a12 30%, #ffe6b0 50%, #7a5a12 70%, var(--gold) 100%);
+}
+
+/* ── Subtle table felt stitch marks ─────────────────── */
+.felt-stitch {
+  background-image:
+    linear-gradient(rgba(243, 242, 224, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(243, 242, 224, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+
+/* ── Slim themed scrollbars ─────────────────────────── */
+.thin-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.thin-scroll::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.25); border-radius: 3px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(224, 160, 64, 0.4); border-radius: 3px; }
+
+/* ── Hand fan rotation helpers ──────────────────────── */
+.hand-fan > * { transform-origin: 50% 115%; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

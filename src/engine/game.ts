@@ -1,0 +1,641 @@
+// Thuruppu Game Engine — Core state machine
+
+import type {
+  Card, Suit, Rank, PlayerIndex, TeamIndex,
+  TrickCard, Trick, BidRecord, GameState, LegalMove, PlayerViewState,
+} from './types';
+import {
+  createDeck, shuffleDeck, sortHand, getCardPoints, getRankValue,
+  getCardsOfSuit, getTeam, getNextPlayer, countPoints, isPointlessHand,
+} from './cards';
+
+// ─── Initial State ────────────────────────────────────────────────
+
+export function createGame(dealer: PlayerIndex = 0): GameState {
+  const deck = shuffleDeck(createDeck());
+  const hands: [Card[], Card[], Card[], Card[]] = [[], [], [], []];
+
+  // Deal first 4 cards counter-clockwise starting to dealer's right
+  for (let i = 0; i < 16; i++) {
+    hands[(dealer + 3 * (i + 1)) % 4].push(deck[i]);
+  }
+
+  return {
+    phase: 'bidding',
+    hands: hands.map(h => sortHand(h)) as [Card[], Card[], Card[], Card[]],
+    currentPlayer: getNextPlayer(dealer), // right of dealer = first bidder
+    dealer,
+    remainingDeck: deck.slice(16), // 16 undealt cards
+    tricks: [],
+    currentTrick: { cards: [null, null, null, null], leadSuit: null },
+    trumpSuit: null,
+    hiddenTrumpCard: null,
+    trumpRevealed: false,
+    bid: null,
+    bidHistory: [],
+    bidderPairShown: false,
+    defenderPairShown: false,
+    scores: { team0: 0, team1: 0 },
+    roundComplete: false,
+    roundResult: null,
+    winner: null,
+    trickNumber: 1,
+    trumpLedThisTrick: false,
+    passesSinceLastBid: 0,
+  };
+}
+
+// ─── Copy Helpers ─────────────────────────────────────────────────
+
+function cloneHands(hands: GameState['hands']): GameState['hands'] {
+  return hands.map(h => [...h]) as GameState['hands'];
+}
+
+function cloneTricks(tricks: Trick[]): Trick[] {
+  return tricks.map(t => ({
+    cards: [...t.cards],
+    winner: t.winner,
+    points: t.points,
+  }));
+}
+
+function cloneState(state: GameState): GameState {
+  return {
+    ...state,
+    hands: cloneHands(state.hands),
+    remainingDeck: [...state.remainingDeck],
+    tricks: cloneTricks(state.tricks),
+    currentTrick: {
+      cards: [...state.currentTrick.cards],
+      leadSuit: state.currentTrick.leadSuit,
+    },
+    bidHistory: [...state.bidHistory],
+    scores: { ...state.scores },
+    roundResult: state.roundResult ? { ...state.roundResult } : null,
+  };
+}
+
+// ─── Trick Winner ──────────────────────────────────────────────────
+
+export function getTrickWinner(
+  cards: TrickCard[],
+  trumpSuit: Suit | null,
+  trumpRevealed: boolean,
+): PlayerIndex {
+  if (cards.length === 0) throw new Error('No cards in trick');
+
+  const leadSuit = cards[0].card.suit;
+  let winner = cards[0];
+
+  for (let i = 1; i < cards.length; i++) {
+    const current = cards[i];
+    const prevIsTrump = trumpRevealed && trumpSuit !== null && winner.card.suit === trumpSuit;
+    const currIsTrump = trumpRevealed && trumpSuit !== null && current.card.suit === trumpSuit;
+
+    if (currIsTrump && !prevIsTrump) {
+      // Current is trump, previous is not → current wins
+      winner = current;
+    } else if (currIsTrump && prevIsTrump) {
+      // Both trump → higher rank wins
+      if (getRankValue(current.card.rank) > getRankValue(winner.card.rank)) {
+        winner = current;
+      }
+    } else if (!currIsTrump && !prevIsTrump) {
+      // Neither trump → higher card of lead suit wins
+      if (current.card.suit === leadSuit &&
+          getRankValue(current.card.rank) > getRankValue(winner.card.rank)) {
+        winner = current;
+      }
+    }
+  }
+
+  return winner.player;
+}
+
+// ─── Legal Moves ───────────────────────────────────────────────────
+
+export function getLegalMoves(state: GameState): LegalMove[] {
+  switch (state.phase) {
+    case 'bidding': return getBiddingMoves(state);
+    case 'selectingTrump': return getSelectingTrumpMoves(state);
+    case 'firstPhase': return getFirstPhaseMoves(state);
+    case 'secondPhase': return getSecondPhaseMoves(state);
+    case 'dealing': return [];
+    case 'scoring': return [{ type: 'nextRound' }];
+    case 'finished': return [];
+  }
+}
+
+function getBiddingMoves(state: GameState): LegalMove[] {
+  const moves: LegalMove[] = [];
+  const currentMin = state.bid ? state.bid.amount + 1 : 14;
+
+  for (let amount = currentMin; amount <= 28; amount++) {
+    moves.push({ type: 'bid', amount });
+  }
+
+  const isFirstBidder = state.bidHistory.length === 0;
+  if (!isFirstBidder) {
+    moves.push({ type: 'pass' });
+  }
+
+  // Redeal available if all 4 have passed (edge case for manual state)
+  if (state.bid === null && state.bidHistory.length >= 4) {
+    moves.push({ type: 'redeal' });
+  }
+
+  return moves;
+}
+
+function getSelectingTrumpMoves(state: GameState): LegalMove[] {
+  const hand = state.hands[state.currentPlayer];
+  return hand.map(card => ({ type: 'selectTrump' as const, card }));
+}
+
+function getFirstPhaseMoves(state: GameState): LegalMove[] {
+  const hand = state.hands[state.currentPlayer];
+  const leadSuit = state.currentTrick.leadSuit;
+  const moves: LegalMove[] = [];
+  const isBidder = state.currentPlayer === state.bid?.bidder;
+
+  if (leadSuit === null) {
+    // Leading a trick — the bidder cannot lead trump until it is declared.
+    // If that restriction would leave the bidder with no legal card at all
+    // (a hand of only trump + the hidden card), fall back to any playable card
+    // so the game can never deadlock.
+    const leadable = hand.filter(card =>
+      !(isBidder && state.trumpSuit && card.suit === state.trumpSuit && !state.trumpLedThisTrick) &&
+      !cardEquals(card, state.hiddenTrumpCard),
+    );
+    // If the restriction would leave the bidder with no legal card at all,
+    // fall back to any playable card — including the hidden trump if it is the
+    // only card left — so the game can never deadlock.
+    const source = leadable.length > 0 ? leadable : hand;
+    for (const card of source) {
+      moves.push({ type: 'playCard', card });
+    }
+  } else {
+    // Following
+    const followingCards = getCardsOfSuit(hand, leadSuit);
+    if (followingCards.length > 0) {
+      const followable = followingCards.filter(card => !cardEquals(card, state.hiddenTrumpCard));
+      // If the only card that can follow is the hidden trump card, allow it
+      // rather than leave the player with no legal move.
+      const source = followable.length > 0 ? followable : followingCards;
+      for (const card of source) {
+        moves.push({ type: 'playCard', card });
+      }
+    } else {
+      // Cannot follow suit — can discard or call trump
+      for (const card of hand) {
+        if (cardEquals(card, state.hiddenTrumpCard)) continue;
+        moves.push({ type: 'playCard', card });
+      }
+      if (!state.trumpRevealed) {
+        moves.push({ type: 'callTrump' });
+      }
+    }
+  }
+
+  return moves;
+}
+
+function getSecondPhaseMoves(state: GameState): LegalMove[] {
+  const hand = state.hands[state.currentPlayer];
+  const leadSuit = state.currentTrick.leadSuit;
+  const moves: LegalMove[] = [];
+  const trumpSuit = state.trumpSuit;
+
+  if (leadSuit === null) {
+    for (const card of hand) {
+      // Hidden trump card is now playable in Phase 2
+      moves.push({ type: 'playCard', card });
+    }
+  } else {
+    const followingCards = getCardsOfSuit(hand, leadSuit);
+    if (followingCards.length > 0) {
+      for (const card of followingCards) {
+        moves.push({ type: 'playCard', card });
+      }
+    } else {
+      // Cannot follow suit
+      const trickHasTrump = state.currentTrick.cards.some(
+        c => c !== null && trumpSuit !== null && c.card.suit === trumpSuit,
+      );
+
+      if (trickHasTrump && trumpSuit) {
+        // Must over-trump if possible
+        const myTrumps = getCardsOfSuit(hand, trumpSuit);
+        if (myTrumps.length > 0) {
+          const trumpInTrick = state.currentTrick.cards.filter(
+            c => c !== null && c.card.suit === trumpSuit,
+          ) as TrickCard[];
+          const highestTrumpInTrick = trumpInTrick.reduce<TrickCard>((best, c) =>
+            getRankValue(c.card.rank) > getRankValue(best.card.rank) ? c : best,
+          trumpInTrick[0]);
+
+          const overTrumps = myTrumps.filter(
+            c => getRankValue(c.rank) > getRankValue(highestTrumpInTrick!.card.rank),
+          );
+
+          if (overTrumps.length > 0) {
+            for (const card of overTrumps) {
+              moves.push({ type: 'playCard', card });
+            }
+          } else {
+            for (const card of hand) {
+              moves.push({ type: 'playCard', card });
+            }
+          }
+        } else {
+          for (const card of hand) {
+            moves.push({ type: 'playCard', card });
+          }
+        }
+      } else {
+        for (const card of hand) {
+          moves.push({ type: 'playCard', card });
+        }
+      }
+    }
+  }
+
+  // Pair rule
+  if (trumpSuit && state.trumpRevealed) {
+    const playerHand = state.hands[state.currentPlayer];
+    const hasK = playerHand.some(c => c.suit === trumpSuit && c.rank === 'K');
+    const hasQ = playerHand.some(c => c.suit === trumpSuit && c.rank === 'Q');
+    const playerTeam = getTeam(state.currentPlayer);
+    const bidderTeam = state.bid ? getTeam(state.bid.bidder) : null;
+
+    if (hasK && hasQ) {
+      if (playerTeam === bidderTeam && !state.bidderPairShown) {
+        moves.push({ type: 'showPair' });
+      } else if (playerTeam !== bidderTeam && !state.defenderPairShown) {
+        moves.push({ type: 'showPair' });
+      }
+    }
+  }
+
+  return moves;
+}
+
+// ─── Card Equality Helper ─────────────────────────────────────────
+
+function cardEquals(a: Card | null, b: Card | null): boolean {
+  if (a === null || b === null) return false;
+  return a.suit === b.suit && a.rank === b.rank;
+}
+
+// ─── Move Equality for Validation ─────────────────────────────────
+
+function moveEquals(legal: LegalMove, move: LegalMove): boolean {
+  if (legal.type !== move.type) return false;
+  switch (move.type) {
+    case 'bid': return legal.type === 'bid' && legal.amount === move.amount;
+    case 'playCard': return legal.type === 'playCard' && cardEquals(legal.card, move.card);
+    case 'selectTrump': return legal.type === 'selectTrump' && cardEquals(legal.card, move.card);
+    default: return true; // pass, callTrump, showPair, nextRound, redeal
+  }
+}
+
+// ─── Apply Move ────────────────────────────────────────────────────
+
+export function applyMove(state: GameState, move: LegalMove): GameState {
+  const legal = getLegalMoves(state);
+  const isLegal = legal.some(m => moveEquals(m, move));
+  if (!isLegal) {
+    throw new Error(`Illegal move: ${JSON.stringify(move)}`);
+  }
+
+  switch (move.type) {
+    case 'bid': return handleBid(state, move.amount);
+    case 'pass': return handlePass(state);
+    case 'selectTrump': return handleSelectTrump(state, move.card);
+    case 'playCard': return handlePlayCard(state, move.card);
+    case 'callTrump': return handleCallTrump(state);
+    case 'showPair': return handleShowPair(state);
+    case 'nextRound': return handleNextRound(state);
+    case 'redeal': return handleRedeal(state);
+  }
+}
+
+// ─── Move Handlers ─────────────────────────────────────────────────
+
+function handleBid(state: GameState, amount: number): GameState {
+  const s = cloneState(state);
+  s.bid = { amount, bidder: s.currentPlayer };
+  s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, amount, pass: false }];
+  s.passesSinceLastBid = 0;
+  s.currentPlayer = getNextPlayer(s.currentPlayer);
+  return s;
+}
+
+function handlePass(state: GameState): GameState {
+  const s = cloneState(state);
+  s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, pass: true }];
+  s.passesSinceLastBid++;
+
+  // 3 consecutive passes → auction ends
+  if (s.passesSinceLastBid >= 3) {
+    if (s.bid === null) {
+      return handleRedeal(s); // no one bid → redeal
+    }
+    return startTrumpSelection(s);
+  }
+
+  // All 4 passed after a bid
+  if (s.bidHistory.length >= 4 &&
+      s.bidHistory.slice(-4).every(r => r.pass) &&
+      s.bid !== null) {
+    return startTrumpSelection(s);
+  }
+
+  s.currentPlayer = getNextPlayer(s.currentPlayer);
+  return s;
+}
+
+function startTrumpSelection(state: GameState): GameState {
+  const s = cloneState(state);
+  s.phase = 'selectingTrump';
+  s.currentPlayer = s.bid!.bidder; // bidder must choose trump
+  return s;
+}
+
+function handleSelectTrump(state: GameState, card: Card): GameState {
+  const s = cloneState(state);
+  const bidder = s.bid!.bidder;
+
+  // Verify card is in bidder's hand
+  const cardIdx = s.hands[bidder].findIndex(c => cardEquals(c, card));
+  if (cardIdx === -1) throw new Error('Trump card not in hand');
+
+  s.trumpSuit = card.suit;
+  s.hiddenTrumpCard = card; // Mark as hidden — stays in hand
+
+  return completeDealAndStartPlay(s);
+}
+
+function completeDealAndStartPlay(state: GameState): GameState {
+  const s = cloneState(state);
+  s.phase = 'firstPhase';
+
+  // Deal remaining 4 cards to each player from the saved remainingDeck
+  const deck = [...s.remainingDeck]; // Use the original undealt cards
+  let cardIndex = 0;
+  for (let p = 0; p < 4; p++) {
+    const existingCount = s.hands[p].length;
+    for (let i = existingCount; i < 8; i++) {
+      if (cardIndex >= deck.length) break; // Should not happen
+      s.hands[p].push(deck[cardIndex++]);
+    }
+    s.hands[p] = sortHand(s.hands[p]);
+  }
+  s.remainingDeck = []; // Consumed
+
+  // Player to dealer's right leads the first trick
+  s.currentPlayer = getNextPlayer(s.dealer);
+  s.trickNumber = 1;
+
+  // Check for pointless hands — if any player has 8 worthless cards, game cancelled
+  for (let p = 0; p < 4; p++) {
+    if (isPointlessHand(s.hands[p])) {
+      return handleRedeal(s);
+    }
+  }
+
+  return s;
+}
+
+function handleCallTrump(state: GameState): GameState {
+  const s = cloneState(state);
+  s.trumpRevealed = true;
+  s.phase = 'secondPhase';
+  // Keep hiddenTrumpCard — it's now visible to all as the revealed trump card
+  // (it's still in the bidder's hand and playable)
+  return s;
+}
+
+function handleShowPair(state: GameState): GameState {
+  const s = cloneState(state);
+  const player = s.currentPlayer;
+  const playerTeam = getTeam(player);
+  const bidderTeam = getTeam(s.bid!.bidder);
+
+  if (playerTeam === bidderTeam) {
+    s.bidderPairShown = true;
+    s.bid = { ...s.bid!, amount: s.bid!.amount - 4 };
+  } else {
+    s.defenderPairShown = true;
+    s.bid = { ...s.bid!, amount: s.bid!.amount + 4 };
+  }
+
+  return s;
+}
+
+function handleNextRound(state: GameState): GameState {
+  // Rotate dealer counter-clockwise
+  const newDealer = getNextPlayer(state.dealer);
+  const newGame = createGame(newDealer);
+
+  // Preserve scores and winner
+  return {
+    ...newGame,
+    scores: { ...state.scores },
+    winner: state.winner,
+  };
+}
+
+function handleRedeal(state: GameState): GameState {
+  const newGame = createGame(state.dealer);
+  return {
+    ...newGame,
+    scores: { ...state.scores },
+    winner: state.winner,
+  };
+}
+
+function handlePlayCard(state: GameState, card: Card): GameState {
+  const s = cloneState(state);
+  const player = s.currentPlayer;
+  const hand = s.hands[player];
+  const cardIndex = hand.findIndex(c => cardEquals(c, card));
+
+  if (cardIndex === -1) {
+    throw new Error('Card not in hand');
+  }
+
+  // Remove from hand
+  s.hands[player] = [...hand.slice(0, cardIndex), ...hand.slice(cardIndex + 1)];
+
+  // Clear hidden trump reference if it was played
+  if (cardEquals(card, s.hiddenTrumpCard)) {
+    s.hiddenTrumpCard = null;
+  }
+
+  // Set lead suit if first card
+  if (s.currentTrick.leadSuit === null) {
+    s.currentTrick.leadSuit = card.suit;
+  }
+
+  // Track if trump was played this trick
+  if (s.trumpSuit && card.suit === s.trumpSuit) {
+    s.trumpLedThisTrick = true;
+  }
+
+  // Place card
+  const newTrickCards = [...s.currentTrick.cards];
+  newTrickCards[player] = { card, player };
+  s.currentTrick = { ...s.currentTrick, cards: newTrickCards };
+
+  // Check if trick is complete (4 cards)
+  const placedCount = newTrickCards.filter(c => c !== null).length;
+  if (placedCount === 4) {
+    return finishTrick(s);
+  }
+
+  // Advance to next player
+  s.currentPlayer = getNextPlayer(player);
+  return s;
+}
+
+function finishTrick(state: GameState): GameState {
+  const s = cloneState(state);
+  const cards = s.currentTrick.cards.filter(c => c !== null) as TrickCard[];
+
+  const winner = getTrickWinner(cards, s.trumpSuit, s.trumpRevealed);
+  const points = cards.reduce((sum, tc) => sum + getCardPoints(tc.card), 0);
+
+  const trick: Trick = { cards, winner, points };
+  s.tricks = [...s.tricks, trick];
+  s.currentTrick = { cards: [null, null, null, null], leadSuit: null };
+  s.currentPlayer = winner;
+  s.trickNumber++;
+  s.trumpLedThisTrick = false;
+
+  // Check if round is complete (8 tricks)
+  if (s.tricks.length === 8) {
+    return computeRoundResult(s);
+  }
+
+  return s;
+}
+
+export function computeRoundResult(state: GameState): GameState {
+  const s = cloneState(state);
+  s.phase = 'scoring';
+  s.roundComplete = true;
+
+  const bid = s.bid!;
+  const bidderTeam = getTeam(bid.bidder);
+
+  // Count points per team
+  let team0Points = 0;
+  let team1Points = 0;
+  for (const trick of s.tricks) {
+    const winnerTeam = getTeam(trick.winner);
+    if (winnerTeam === 0) team0Points += trick.points;
+    else team1Points += trick.points;
+  }
+
+  const biddingTeamPoints = bidderTeam === 0 ? team0Points : team1Points;
+  const defendingTeamPoints = bidderTeam === 0 ? team1Points : team0Points;
+  const biddingTeamWon = biddingTeamPoints >= bid.amount;
+  const doubled = !biddingTeamWon && biddingTeamPoints < Math.ceil(bid.amount / 2);
+
+  s.roundResult = {
+    biddingTeamWon,
+    bidAmount: bid.amount,
+    biddingTeamPoints,
+    defendingTeamPoints,
+    doubled,
+  };
+
+  // Update scores
+  const pointsChange = doubled ? 2 : 1;
+  if (biddingTeamWon) {
+    if (bidderTeam === 0) {
+      s.scores = { ...s.scores, team0: s.scores.team0 + pointsChange };
+    } else {
+      s.scores = { ...s.scores, team1: s.scores.team1 + pointsChange };
+    }
+  } else {
+    if (bidderTeam === 0) {
+      s.scores = { ...s.scores, team0: s.scores.team0 - pointsChange };
+    } else {
+      s.scores = { ...s.scores, team1: s.scores.team1 - pointsChange };
+    }
+  }
+
+  // Check match end
+  if (s.scores.team0 >= 6) {
+    s.winner = 0;
+    s.phase = 'finished';
+  } else if (s.scores.team1 >= 6) {
+    s.winner = 1;
+    s.phase = 'finished';
+  } else if (s.scores.team0 <= -6) {
+    s.winner = 1;
+    s.phase = 'finished';
+  } else if (s.scores.team1 <= -6) {
+    s.winner = 0;
+    s.phase = 'finished';
+  }
+
+  return s;
+}
+
+// ─── Player View ───────────────────────────────────────────────────
+
+export function getPlayerView(state: GameState, playerIndex: PlayerIndex): PlayerViewState {
+  const teamIdx = getTeam(playerIndex);
+  const legalMoves = state.currentPlayer === playerIndex ? getLegalMoves(state) : [];
+
+  // Partner: (0↔2) or (1↔3)
+  const partner = playerIndex === 0 ? 2 : playerIndex === 2 ? 0 :
+                  playerIndex === 1 ? 3 : 1;
+  const opponents: PlayerIndex[] = playerIndex === 0 ? [1, 3] :
+                                    playerIndex === 1 ? [0, 2] :
+                                    playerIndex === 2 ? [1, 3] : [0, 2];
+
+  const visibleTrumpSuit = state.trumpRevealed ? state.trumpSuit : null;
+
+  return {
+    phase: state.phase,
+    playerIndex,
+    teamIndex: teamIdx,
+    hand: [...state.hands[playerIndex]],
+    partnerHandCount: state.hands[partner].length,
+    opponentHandCounts: [state.hands[opponents[0]].length, state.hands[opponents[1]].length],
+    currentPlayer: state.currentPlayer,
+    dealer: state.dealer,
+    tricks: state.tricks,
+    currentTrick: {
+      cards: [...state.currentTrick.cards],
+      leadSuit: state.currentTrick.leadSuit,
+    },
+    trumpSuit: visibleTrumpSuit,
+    trumpRevealed: state.trumpRevealed,
+    bid: state.bid,
+    bidHistory: state.bidHistory,
+    bidderPairShown: state.bidderPairShown,
+    defenderPairShown: state.defenderPairShown,
+    scores: state.scores,
+    trickNumber: state.trickNumber,
+    // Show hidden trump card to everyone after it's revealed
+    hiddenTrumpCard: (state.trumpRevealed || state.currentPlayer === playerIndex || state.bid?.bidder === playerIndex)
+      ? state.hiddenTrumpCard
+      : null,
+    roundComplete: state.roundComplete,
+    roundResult: state.roundResult,
+    winner: state.winner,
+    legalMoves,
+  };
+}
+
+// ─── Re-export cards utilities ─────────────────────────────────────
+
+export {
+  createDeck, shuffleDeck, sortHand, getCardPoints, getRankValue,
+  getCardsOfSuit, isPointlessHand, countPoints, getTeam, getNextPlayer,
+} from './cards';
