@@ -15,6 +15,31 @@ interface StoredGame {
 
 const gameStore = new Map<string, StoredGame>();
 
+// ─── Diagnostic logging ─────────────────────────────────────────────
+// Monotonic sequence + structured fields to trace turn ordering and
+// concurrent mutation. Grep the server log for `[thuruppu-seq]`.
+let moveSequence = 0;
+
+function emitMove(
+  gameId: string,
+  op: string,
+  move: unknown,
+  fields: Record<string, unknown>,
+) {
+  moveSequence += 1;
+  console.log(
+    '[thuruppu-seq] ' +
+      JSON.stringify({
+        seq: moveSequence,
+        ts: new Date().toISOString(),
+        game: gameId.slice(0, 8),
+        op,
+        move,
+        ...fields,
+      }),
+  );
+}
+
 export function createNewGame(): { gameId: string; view: PlayerViewState } {
   const gameId = crypto.randomUUID();
   const state = createGame(0);
@@ -58,11 +83,31 @@ export function processHumanMove(
   const game = gameStore.get(gameId);
   if (!game) return { error: 'Game not found' };
 
+  const before = game.state;
+  emitMove(gameId, 'human', move, {
+    beforePlayer: before.currentPlayer,
+    beforePhase: before.phase,
+    beforeTrickNumber: before.trickNumber,
+    beforeTrickPlaced: before.currentTrick.cards.filter(c => c !== null).length,
+    lockedAtMutation: game.locked,
+  });
+
   try {
     game.state = applyMove(game.state, move);
     const view = getPlayerView(game.state, game.humanPlayer);
+    emitMove(gameId, 'human-applied', move, {
+      afterPlayer: game.state.currentPlayer,
+      afterPhase: game.state.phase,
+      afterTrickNumber: game.state.trickNumber,
+    });
     return { view, agentThinking: [] };
   } catch (e) {
+    emitMove(gameId, 'human-error', move, {
+      beforePlayer: before.currentPlayer,
+      beforePhase: before.phase,
+      lockedAtMutation: game.locked,
+      error: (e as Error).message,
+    });
     return { error: 'Invalid move' };
   }
 }
@@ -77,13 +122,32 @@ export interface AgentAction {
 /** Process a single agent turn — used by polling endpoint for non-blocking updates */
 export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | null> {
   const game = gameStore.get(gameId);
-  if (!game || game.locked) return null;
+  if (!game || game.locked) {
+    if (game?.locked) {
+      emitMove(gameId, 'agent-skipped-locked', null, {
+        currentPlayer: game.state.currentPlayer,
+        phase: game.state.phase,
+        humanPlayer: game.humanPlayer,
+      });
+    }
+    return null;
+  }
   if (game.state.currentPlayer === game.humanPlayer) return null;
   if (game.state.phase === 'finished') return null;
 
   const player = game.state.currentPlayer;
   const agentId = game.agentIds[player];
   if (!agentId) return null;
+
+  const before = game.state;
+  emitMove(gameId, 'agent-turn', null, {
+    player,
+    agentId,
+    beforePlayer: before.currentPlayer,
+    beforePhase: before.phase,
+    beforeTrickNumber: before.trickNumber,
+    beforeTrickPlaced: before.currentTrick.cards.filter(c => c !== null).length,
+  });
 
   game.locked = true;
   try {
@@ -93,6 +157,13 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
     game.state = applyMove(game.state, move);
     game.locked = false;
 
+    emitMove(gameId, 'agent-applied', move, {
+      player,
+      afterPlayer: game.state.currentPlayer,
+      afterPhase: game.state.phase,
+      afterTrickNumber: game.state.trickNumber,
+    });
+
     return {
       player,
       agentName: profile.name,
@@ -101,6 +172,11 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
     };
   } catch (e) {
     game.locked = false;
+    emitMove(gameId, 'agent-error', null, {
+      player,
+      agentId,
+      error: (e as Error).message,
+    });
     throw e;
   }
 }
