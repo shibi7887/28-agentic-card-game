@@ -31,6 +31,7 @@ export function phaseLabel(phase: Phase): string {
   switch (phase) {
     case "bidding": return "Bidding";
     case "selectingTrump": return "Select Trump";
+    case "rebidding": return "Rebid (24+)";
     case "firstPhase": return "Play · Trump Hidden";
     case "secondPhase": return "Play · Trump Active";
     case "scoring": return "Round Complete";
@@ -59,6 +60,17 @@ export default function GameTable({
   const [revealKey, setRevealKey] = useState(0);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [peekingTrump, setPeekingTrump] = useState(false);
+  const [showPoints, setShowPoints] = useState(true);
+  const [showResult, setShowResult] = useState(false);
+
+  // Delay the round-result overlay so the last trick stays visible
+  useEffect(() => {
+    if (view.roundResult !== null || view.winner !== null) {
+      const t = setTimeout(() => setShowResult(true), 3000);
+      return () => clearTimeout(t);
+    }
+    setShowResult(false);
+  }, [view.roundResult, view.winner]);
 
   const prevTrickCount = useRef(view.tricks.length);
   const prevCurTrick = useRef<(TrickCard | null)[]>(view.currentTrick.cards);
@@ -154,6 +166,17 @@ export default function GameTable({
     return counts;
   }, [view.tricks]);
 
+  // Running card points won by each team in the current round
+  const teamRoundPoints = useMemo(() => {
+    let team0 = 0;
+    let team1 = 0;
+    for (const t of view.tricks) {
+      if (t.winner === 0 || t.winner === 2) team0 += t.points;
+      else team1 += t.points;
+    }
+    return { team0, team1 };
+  }, [view.tricks]);
+
   const canCallTrump = view.legalMoves.some(m => m.type === "callTrump");
   const canShowPair = view.legalMoves.some(m => m.type === "showPair");
 
@@ -191,17 +214,17 @@ export default function GameTable({
     ? "The table is thinking"
     : view.phase === "bidding"
       ? isHumanTurn ? "Place your bid" : "Waiting for bids"
-      : view.phase === "selectingTrump"
-        ? isHumanTurn ? "Pick the trump suit" : "Choosing trump…"
-        : view.phase === "scoring"
-          ? "Round complete"
-          : view.phase === "finished"
-            ? "Match over"
-            : canShowPair
-              ? "Play a card or show your pair"
-              : "Your turn — play a card";
-
-  const showRoundResult = view.roundResult !== null || view.winner !== null;
+      : view.phase === "rebidding"
+        ? isHumanTurn ? "Raise the bid to 24+ or pass" : "Opponent considering rebid…"
+        : view.phase === "selectingTrump"
+          ? isHumanTurn ? "Pick the trump suit" : "Choosing trump…"
+          : view.phase === "scoring"
+            ? "Round complete"
+            : view.phase === "finished"
+              ? "Match over"
+              : canShowPair
+                ? "Play a card or show your pair"
+                : "Your turn — play a card";
 
   return (
     <div className="felt grain relative flex min-h-screen flex-col" style={{ background: "radial-gradient(ellipse at center, #114A39 0%, #0B1E08 70%, #1F1307 100%)" }}>
@@ -218,6 +241,34 @@ export default function GameTable({
         currentBidder={view.currentPlayer}
         biddingActive={view.phase === 'bidding'}
       />
+
+      {/* Running team points — toggleable */}
+      <div className="relative z-10 mx-auto flex w-full max-w-4xl items-center justify-center gap-3 px-4 pt-2">
+        <button
+          type="button"
+          onClick={() => setShowPoints(p => !p)}
+          className="flex items-center gap-1.5 rounded-full px-3 py-1 font-ui text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[var(--cream)]/60 transition-colors hover:text-[var(--gold)]"
+          style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.3)", background: "rgba(0,0,0,0.2)" }}
+        >
+          <span>{showPoints ? "▾" : "▸"} Points</span>
+        </button>
+        {showPoints && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="flex items-center gap-4 overflow-hidden"
+          >
+            <span className="font-ui text-[0.72rem] text-[var(--cream)]/75">
+              <span className="font-bold text-[var(--gold-bright)]">{teamRoundPoints.team0}</span> Your Team
+            </span>
+            <span className="text-[var(--gold)]/30">·</span>
+            <span className="font-ui text-[0.72rem] text-[var(--cream)]/75">
+              <span className="font-bold text-[var(--gold-bright)]">{teamRoundPoints.team1}</span> Opponents
+            </span>
+            <span className="font-ui text-[0.6rem] text-[var(--cream)]/45">/ 28</span>
+          </motion.div>
+        )}
+      </div>
 
       <main className="relative z-10 mx-auto flex w-full max-w-4xl flex-1 flex-col px-2 pb-8 pt-3 sm:px-6">
         {/* North seat */}
@@ -372,8 +423,8 @@ export default function GameTable({
             </motion.div>
           </AnimatePresence>
 
-          {/* Bid grid */}
-          {view.phase === "bidding" && isHumanTurn && !loading && (
+          {/* Bid grid — bidding (14+) and rebidding (24+) */}
+          {(view.phase === "bidding" || view.phase === "rebidding") && isHumanTurn && !loading && (
             <BidPanel
               legalMoves={view.legalMoves}
               currentBid={view.bid}
@@ -516,7 +567,7 @@ export default function GameTable({
 
       {/* Round result / match end overlay */}
       <AnimatePresence>
-        {showRoundResult && view.roundResult && (
+        {showResult && view.roundResult && (
           <RoundResult
             biddingTeamWon={view.roundResult.biddingTeamWon}
             bidAmount={view.roundResult.bidAmount}

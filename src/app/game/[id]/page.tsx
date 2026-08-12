@@ -33,9 +33,33 @@ export default function GamePage() {
     }
   }, [gameId]);
 
+  // On initial load, fetch once then poll until it's the human's turn
   useEffect(() => {
-    fetchState();
-  }, [fetchState]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/game/${gameId}/state`);
+        const data = await res.json();
+        if (data.error) { setError(data.error); setLoading(false); return; }
+        if (cancelled) return;
+        const v = data.view as PlayerViewState;
+        setView(v);
+        setLoading(false);
+        // If it's not the human's turn yet (e.g. agent bidding first), poll
+        if (
+          v.currentPlayer !== v.playerIndex &&
+          v.phase !== 'finished' &&
+          v.phase !== 'scoring'
+        ) {
+          await pollUntilHumanTurn();
+        }
+      } catch (e) {
+        if (!cancelled) { setError((e as Error).message); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId]);
 
   const submitMove = async (move: LegalMove) => {
     setLoading(true);

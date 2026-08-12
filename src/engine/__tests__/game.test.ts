@@ -196,7 +196,8 @@ describe('Trump Selection', () => {
     const trumpCard = (trumpMoves[0] as { type: 'selectTrump'; card: Card }).card;
     game = applyMove(game, { type: 'selectTrump', card: trumpCard });
 
-    expect(game.phase).toBe('firstPhase');
+    // Now in rebidding phase (bidder/partner may raise to 24+)
+    expect(game.phase).toBe('rebidding');
     expect(game.trumpSuit).toBe(trumpCard.suit);
     expect(game.hiddenTrumpCard).toEqual(trumpCard);
     // All players should have 8 cards
@@ -206,6 +207,13 @@ describe('Trump Selection', () => {
     expect(game.hands[3]).toHaveLength(8);
     // remainingDeck should be empty
     expect(game.remainingDeck).toHaveLength(0);
+
+    // Both rebid players pass → firstPhase
+    expect(game.rebidPlayers.length).toBeGreaterThan(0);
+    while (game.phase === 'rebidding') {
+      game = applyMove(game, { type: 'pass' });
+    }
+    expect(game.phase).toBe('firstPhase');
   });
 
   it('bidder still has 8 cards after trump selection (card not removed)', () => {
@@ -237,7 +245,7 @@ describe('Trick Resolution', () => {
       { card: { suit: 'hearts', rank: '10' }, player: 2 },
       { card: { suit: 'spades', rank: '9' }, player: 3 },
     ];
-    const winner = getTrickWinner(cards, 'diamonds', false);
+    const winner = getTrickWinner(cards, 'hearts', 'diamonds', false);
     expect(winner).toBe(0);
   });
 
@@ -248,7 +256,7 @@ describe('Trick Resolution', () => {
       { card: { suit: 'hearts', rank: '9' }, player: 2 },
       { card: { suit: 'hearts', rank: 'A' }, player: 3 },
     ];
-    const winner = getTrickWinner(cards, 'diamonds', true);
+    const winner = getTrickWinner(cards, 'hearts', 'diamonds', true);
     expect(winner).toBe(1);
   });
 
@@ -259,7 +267,7 @@ describe('Trick Resolution', () => {
       { card: { suit: 'diamonds', rank: 'J' }, player: 2 },
       { card: { suit: 'hearts', rank: 'A' }, player: 3 },
     ];
-    const winner = getTrickWinner(cards, 'diamonds', true);
+    const winner = getTrickWinner(cards, 'hearts', 'diamonds', true);
     expect(winner).toBe(2);
   });
 
@@ -270,7 +278,7 @@ describe('Trick Resolution', () => {
       { card: { suit: 'clubs', rank: '10' }, player: 2 },
       { card: { suit: 'hearts', rank: 'Q' }, player: 3 },
     ];
-    const winner = getTrickWinner(cards, 'diamonds', true);
+    const winner = getTrickWinner(cards, 'clubs', 'diamonds', true);
     expect(winner).toBe(2);
   });
 });
@@ -478,9 +486,13 @@ describe('Full Round Simulation', () => {
     const tCard = (trumpMoves[0] as { type: 'selectTrump'; card: Card }).card;
     game = applyMove(game, { type: 'selectTrump', card: tCard });
 
-    // Now in firstPhase, 8 cards each
-    expect(game.phase).toBe('firstPhase');
+    // Rebid phase — bidder/partner may raise, then pass through to firstPhase
+    expect(game.phase).toBe('rebidding');
     expect(game.hands.every(h => h.length === 8)).toBe(true);
+    while (game.phase === 'rebidding') {
+      game = applyMove(game, { type: 'pass' });
+    }
+    expect(game.phase).toBe('firstPhase');
 
     // Verify tricks can be played
     const moves = getLegalMoves(game);

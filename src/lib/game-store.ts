@@ -133,7 +133,7 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
     return null;
   }
   if (game.state.currentPlayer === game.humanPlayer) return null;
-  if (game.state.phase === 'finished') return null;
+  if (game.state.phase === 'finished' || game.state.phase === 'scoring') return null;
 
   const player = game.state.currentPlayer;
   const agentId = game.agentIds[player];

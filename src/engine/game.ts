@@ -33,6 +33,7 @@ export function createGame(dealer: PlayerIndex = 0): GameState {
     trumpRevealed: false,
     bid: null,
     bidHistory: [],
+    rebidPlayers: [],
     bidderPairShown: false,
     defenderPairShown: false,
     scores: { team0: 0, team1: 0 },
@@ -79,33 +80,44 @@ function cloneState(state: GameState): GameState {
 
 export function getTrickWinner(
   cards: TrickCard[],
+  leadSuit: Suit,
   trumpSuit: Suit | null,
   trumpRevealed: boolean,
 ): PlayerIndex {
   if (cards.length === 0) throw new Error('No cards in trick');
 
-  const leadSuit = cards[0].card.suit;
   let winner = cards[0];
+  let winnerIsTrump = trumpRevealed && trumpSuit !== null && winner.card.suit === trumpSuit;
+  let winnerIsLead = winner.card.suit === leadSuit;
 
   for (let i = 1; i < cards.length; i++) {
     const current = cards[i];
-    const prevIsTrump = trumpRevealed && trumpSuit !== null && winner.card.suit === trumpSuit;
     const currIsTrump = trumpRevealed && trumpSuit !== null && current.card.suit === trumpSuit;
 
-    if (currIsTrump && !prevIsTrump) {
-      // Current is trump, previous is not → current wins
+    if (currIsTrump && !winnerIsTrump) {
+      // Current is trump, winner is not → current wins
       winner = current;
-    } else if (currIsTrump && prevIsTrump) {
+      winnerIsTrump = true;
+      winnerIsLead = current.card.suit === leadSuit;
+    } else if (currIsTrump && winnerIsTrump) {
       // Both trump → higher rank wins
       if (getRankValue(current.card.rank) > getRankValue(winner.card.rank)) {
         winner = current;
       }
-    } else if (!currIsTrump && !prevIsTrump) {
-      // Neither trump → higher card of lead suit wins
-      if (current.card.suit === leadSuit &&
-          getRankValue(current.card.rank) > getRankValue(winner.card.rank)) {
+    } else if (!currIsTrump && !winnerIsTrump) {
+      // Neither is trump
+      const currIsLead = current.card.suit === leadSuit;
+      if (currIsLead && !winnerIsLead) {
+        // Current follows lead, winner is off-suit → current wins
         winner = current;
+        winnerIsLead = true;
+      } else if (currIsLead && winnerIsLead) {
+        // Both follow lead → higher rank wins
+        if (getRankValue(current.card.rank) > getRankValue(winner.card.rank)) {
+          winner = current;
+        }
       }
+      // else: current off-suit, winner follows lead → keep winner
     }
   }
 
@@ -118,12 +130,35 @@ export function getLegalMoves(state: GameState): LegalMove[] {
   switch (state.phase) {
     case 'bidding': return getBiddingMoves(state);
     case 'selectingTrump': return getSelectingTrumpMoves(state);
+    case 'rebidding': return getRebiddingMoves(state);
     case 'firstPhase': return getFirstPhaseMoves(state);
     case 'secondPhase': return getSecondPhaseMoves(state);
     case 'dealing': return [];
     case 'scoring': return [{ type: 'nextRound' }];
     case 'finished': return [];
   }
+}
+
+function getRebiddingMoves(state: GameState): LegalMove[] {
+  // After the 8-card deal, bidder or partner may raise to at least 24.
+  // Only the current rebid player may act; others see no moves.
+  const player = state.currentPlayer;
+  if (!state.rebidPlayers.includes(player)) {
+    return [];
+  }
+
+  const moves: LegalMove[] = [];
+  const currentBid = state.bid?.amount ?? 0;
+  const minBid = Math.max(24, currentBid + 1);
+
+  for (let amount = minBid; amount <= 28; amount++) {
+    moves.push({ type: 'bid', amount });
+  }
+
+  // Can pass (decline to rebid)
+  moves.push({ type: 'pass' });
+
+  return moves;
 }
 
 function getBiddingMoves(state: GameState): LegalMove[] {
@@ -324,6 +359,16 @@ export function applyMove(state: GameState, move: LegalMove): GameState {
 
 function handleBid(state: GameState, amount: number): GameState {
   const s = cloneState(state);
+
+  // Rebid phase: bidder/partner raising to 24+ after 8-card deal
+  if (s.phase === 'rebidding') {
+    s.bid = { amount, bidder: s.currentPlayer };
+    s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, amount, pass: false }];
+    // After any rebid, the other rebid player may still respond
+    s.rebidPlayers = s.rebidPlayers.filter(p => p !== s.currentPlayer);
+    return advanceRebid(s);
+  }
+
   s.bid = { amount, bidder: s.currentPlayer };
   s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, amount, pass: false }];
   s.passesSinceLastBid = 0;
@@ -331,8 +376,26 @@ function handleBid(state: GameState, amount: number): GameState {
   return s;
 }
 
+function advanceRebid(state: GameState): GameState {
+  const s = cloneState(state);
+  // If no more rebid players, move to firstPhase
+  if (s.rebidPlayers.length === 0) {
+    return finishRebid(s);
+  }
+  s.currentPlayer = s.rebidPlayers[0];
+  return s;
+}
+
 function handlePass(state: GameState): GameState {
   const s = cloneState(state);
+
+  // Rebid phase pass: this rebid player declines
+  if (s.phase === 'rebidding') {
+    s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, pass: true }];
+    s.rebidPlayers = s.rebidPlayers.filter(p => p !== s.currentPlayer);
+    return advanceRebid(s);
+  }
+
   s.bidHistory = [...s.bidHistory, { player: s.currentPlayer, pass: true }];
   s.passesSinceLastBid++;
 
@@ -378,7 +441,7 @@ function handleSelectTrump(state: GameState, card: Card): GameState {
 
 function completeDealAndStartPlay(state: GameState): GameState {
   const s = cloneState(state);
-  s.phase = 'firstPhase';
+  s.phase = 'rebidding';
 
   // Deal remaining 4 cards to each player from the saved remainingDeck
   const deck = [...s.remainingDeck]; // Use the original undealt cards
@@ -393,10 +456,6 @@ function completeDealAndStartPlay(state: GameState): GameState {
   }
   s.remainingDeck = []; // Consumed
 
-  // Player to dealer's right leads the first trick
-  s.currentPlayer = getNextPlayer(s.dealer);
-  s.trickNumber = 1;
-
   // Check for pointless hands — if any player has 8 worthless cards, game cancelled
   for (let p = 0; p < 4; p++) {
     if (isPointlessHand(s.hands[p])) {
@@ -404,6 +463,22 @@ function completeDealAndStartPlay(state: GameState): GameState {
     }
   }
 
+  // Rebid phase: bidder and partner may raise to 24+
+  const bidder = s.bid!.bidder;
+  const partner = (bidder + 2) % 4 as PlayerIndex;
+  s.rebidPlayers = [bidder, partner];
+  s.currentPlayer = bidder;
+
+  return s;
+}
+
+function finishRebid(state: GameState): GameState {
+  const s = cloneState(state);
+  s.phase = 'firstPhase';
+  s.rebidPlayers = [];
+  // Player to dealer's right leads the first trick
+  s.currentPlayer = getNextPlayer(s.dealer);
+  s.trickNumber = 1;
   return s;
 }
 
@@ -502,9 +577,16 @@ function handlePlayCard(state: GameState, card: Card): GameState {
 function finishTrick(state: GameState): GameState {
   const s = cloneState(state);
   const cards = s.currentTrick.cards.filter(c => c !== null) as TrickCard[];
+  const leadSuit = s.currentTrick.leadSuit!;
 
-  const winner = getTrickWinner(cards, s.trumpSuit, s.trumpRevealed);
+  const winner = getTrickWinner(cards, leadSuit, s.trumpSuit, s.trumpRevealed);
   const points = cards.reduce((sum, tc) => sum + getCardPoints(tc.card), 0);
+
+  console.log(
+    `[thuruppu-trick] trick #${s.trickNumber} winner=P${winner} leadSuit=${leadSuit} ` +
+    `trump=${s.trumpSuit ?? 'none'} revealed=${s.trumpRevealed} points=${points} ` +
+    `cards=[${cards.map(c => `P${c.player}:${c.card.rank}${c.card.suit}`).join(', ')}]`
+  );
 
   const trick: Trick = { cards, winner, points };
   s.tricks = [...s.tricks, trick];
@@ -618,6 +700,7 @@ export function getPlayerView(state: GameState, playerIndex: PlayerIndex): Playe
     trumpRevealed: state.trumpRevealed,
     bid: state.bid,
     bidHistory: state.bidHistory,
+    rebidPlayers: [...state.rebidPlayers],
     bidderPairShown: state.bidderPairShown,
     defenderPairShown: state.defenderPairShown,
     scores: state.scores,

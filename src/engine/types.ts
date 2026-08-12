@@ -4,7 +4,7 @@ export type Suit = 'hearts' | 'diamonds' | 'clubs' | 'spades';
 export type Rank = '7' | '8' | 'Q' | 'K' | '10' | 'A' | '9' | 'J';
 export type PlayerIndex = 0 | 1 | 2 | 3;
 export type TeamIndex = 0 | 1;
-export type Phase = 'dealing' | 'bidding' | 'selectingTrump' | 'firstPhase' | 'secondPhase' | 'scoring' | 'finished';
+export type Phase = 'dealing' | 'bidding' | 'selectingTrump' | 'rebidding' | 'firstPhase' | 'secondPhase' | 'scoring' | 'finished';
 
 export interface Card {
   suit: Suit;
@@ -41,6 +41,7 @@ export interface GameState {
   trumpRevealed: boolean;
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
+  rebidPlayers: PlayerIndex[];                   // players who may still rebid (24+ after 8-card deal)
   bidderPairShown: boolean;                      // bidder's team showed K+Q of trump
   defenderPairShown: boolean;                    // defender's team showed K+Q of trump
   scores: { team0: number; team1: number };
@@ -83,6 +84,7 @@ export interface PlayerViewState {
   trumpRevealed: boolean;
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
+  rebidPlayers: PlayerIndex[];
   bidderPairShown: boolean;
   defenderPairShown: boolean;
   scores: { team0: number; team1: number };

@@ -16,7 +16,7 @@ RULES:
 - Card ranking (high→low): J > 9 > A > 10 > K > Q > 8 > 7
 - Card points: J=3, 9=2, A=1, 10=1, K/Q/8/7=0. Total: 28 points.
 - 4 players in fixed teams: South+North (Team 0) vs West+East (Team 1)
-- Play is clockwise (0→1→2→3→0)
+- Play and deal are COUNTER-CLOCKWISE (0→3→2→1→0)
 - Minimum bid: 14. Maximum bid: 28. Must bid higher than previous.
 
 TRUMP & PLAY:
@@ -24,9 +24,18 @@ TRUMP & PLAY:
 - Phase 1 (before trump revealed): Trump has NO special power. Highest of led suit wins.
 - Phase 2 (after trump revealed): Trump beats all other suits. Must follow suit.
 - Bidder cannot lead trump in Phase 1 (unless only trump held or trump already led).
-- When unable to follow suit in Phase 1: can call for trump to be revealed (then must play trump if held).
 - Pair rule: Holding both K and Q of trump allows showing Pair — bidder's pair reduces bid by 4, defender's pair increases bid by 4.
 - First team to ±6 match points wins.
+
+CALLING TRUMP (Phase 1, when you cannot follow the led suit):
+- You may "callTrump" BEFORE playing a card. The bidder then reveals the face-down trump card to everyone.
+- You do NOT know the trump suit until it is revealed — calling is a strategic gamble.
+- After calling, you MUST play a trump card to the trick if you have one (else discard any card).
+- Strategic considerations:
+  * If your TEAM is already winning the current trick, do NOT call trump — instead discard a low card, or discard a point card to add value to your team's win.
+  * If the OPPOSING team is winning the current trick, calling trump may let you capture it — especially valuable if the trick contains high-point cards (J, 9, A, 10).
+  * Calling trump reveals the trump suit to EVERYONE, giving opponents an advantage in later tricks. Call only when it materially helps you this trick.
+  * A high trump in hand (J or 9) makes calling more attractive — you can win the trick outright.
 
 Respond with valid JSON only.`;
 }
@@ -78,8 +87,9 @@ export function buildPlayPrompt(
 
 You are ${profile.name}, with playing style: ${profile.strategyStyle}
 
-PLAY PHASE: You must play a card. Play your strongest card to win the trick if beneficial,
-or discard low cards if you cannot win. Consider your partner's and opponents' likely hands.`;
+PLAY PHASE: You must play a card (or call trump in Phase 1 if you cannot follow suit).
+Play your strongest card to win the trick if beneficial, or discard low cards if you cannot win.
+Consider your partner's and opponents' likely hands.`;
 
   const leadSuit = state.currentTrick.leadSuit
     ? `Lead suit: ${state.currentTrick.leadSuit}`
@@ -98,8 +108,34 @@ or discard low cards if you cannot win. Consider your partner's and opponents' l
     .filter(m => m.type === 'playCard')
     .map(m => formatCard((m as any).card));
 
+  const canCallTrump = state.legalMoves.some(m => m.type === 'callTrump');
+
+  // Determine current trick winner and their team
+  let trickWinnerInfo = '';
+  const placedCards = state.currentTrick.cards.filter(c => c !== null);
+  if (placedCards.length > 0 && state.currentTrick.leadSuit) {
+    const leadSuitCards = placedCards.filter(c => c!.card.suit === state.currentTrick.leadSuit);
+    if (leadSuitCards.length > 0) {
+      const best = leadSuitCards.reduce((best, c) => {
+        const rankOrder: Record<string, number> = { J: 7, '9': 6, A: 5, '10': 4, K: 3, Q: 2, '8': 1, '7': 0 };
+        return rankOrder[c!.card.rank] > rankOrder[best!.card.rank] ? c : best;
+      });
+      const winnerTeam = best!.player % 2;
+      const myTeam = state.playerIndex % 2;
+      trickWinnerInfo = winnerTeam === myTeam
+        ? `YOUR TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`
+        : `OPPONENT TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`;
+    }
+  }
+
+  const trickPoints = placedCards.reduce((sum, c) => sum + (c ? pointValue(c.card.rank) : 0), 0);
+
   const pairInfo = state.bidderPairShown || state.defenderPairShown
     ? `Pair shown: ${state.bidderPairShown ? 'bidder' : 'defender'} — bid adjusted.`
+    : '';
+
+  const callTrumpHint = canCallTrump
+    ? `\nIMPORTANT: You cannot follow the led suit. You may either (1) discard any card, or (2) "callTrump" to reveal the trump suit (then you must play trump if you hold any). ${trickWinnerInfo} Points currently at stake in this trick: ${trickPoints}. Decide strategically: call trump to capture a trick your team is losing, or discard if your team already wins it.`
     : '';
 
   const user = `CURRENT GAME STATE:
@@ -107,12 +143,16 @@ Your hand: ${describeHand(state.hand)}
 ${trumpStatus}
 ${leadSuit}
 Trick so far: ${trickCards || '(empty)'}
+${trickWinnerInfo}
 Trick number: ${state.trickNumber || '?'} of 8
 Bid: ${state.bid?.amount || '?'} by Player ${state.bid?.bidder || '?'}
 Points your team has won this round: ${tricksWon}
+Points at stake in current trick: ${trickPoints}
 ${pairInfo}
+${callTrumpHint}
 
 Legal cards you can play: ${legalMoves.join(', ')}
+${canCallTrump ? 'You may also "callTrump" instead of playing a card.' : ''}
 
 You are Player ${state.playerIndex} (Team ${state.teamIndex}).
 
@@ -122,6 +162,37 @@ RESPOND with JSON:
   "action": "playCard" | "callTrump" | "showPair",
   "cardSuit": "hearts" | "diamonds" | "clubs" | "spades" (only for playCard),
   "cardRank": "J" | "9" | "A" | "10" | "K" | "Q" | "8" | "7" (only for playCard)
+}`;
+
+  return { system, user };
+}
+
+function pointValue(rank: string): number {
+  const map: Record<string, number> = { J: 3, '9': 2, A: 1, '10': 1 };
+  return map[rank] ?? 0;
+}
+
+export function buildRebiddingPrompt(
+  profile: AgentProfile,
+  state: PlayerViewState,
+): { system: string; user: string } {
+  const system = `${buildGameRulesContext()}
+
+You are ${profile.name}, with playing style: ${profile.strategyStyle}
+
+REBID PHASE: You have now seen all 8 of your cards. You may raise the bid to at least 24 (or higher than the current bid if it is already 24+) if you are confident your team can win that many points, or pass to keep the current bid.`;
+
+  const user = `CURRENT GAME STATE:
+Your hand (8 cards): ${describeHand(state.hand)}
+Current bid: ${state.bid?.amount} by Player ${state.bid?.bidder}
+Minimum rebid: ${Math.max(24, (state.bid?.amount ?? 0) + 1)}
+You are Player ${state.playerIndex} (Team ${state.teamIndex}).
+
+RESPOND with JSON:
+{
+  "reasoning": "Brief explanation of your strategy",
+  "action": "bid" | "pass",
+  "bidAmount": number (only if action is "bid")
 }`;
 
   return { system, user };

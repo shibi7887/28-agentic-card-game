@@ -179,25 +179,25 @@ export default function PlayerSeat({
         <motion.span
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="animate-trump-pulse ml-0.5 flex h-7 items-center rounded-md px-1"
+          className="animate-trump-pulse ml-0.5 flex h-10 items-center rounded-lg px-1.5"
           style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.6)", background: "rgba(224,160,64,0.1)" }}
           title="Has hidden trump card"
         >
-          <CardBack size="16px" />
+          <CardBack size="24px" />
         </motion.span>
       )}
       {isBidder && trumpRevealed && hiddenTrumpCard && (
         <motion.span
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="ml-0.5 flex h-7 items-center rounded-md px-1 gap-0.5"
+          className="ml-0.5 flex h-10 items-center rounded-lg px-1.5 gap-1"
           style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.8)", background: "rgba(224,160,64,0.15)" }}
           title="Trump card revealed"
         >
-          <span className="font-card text-xs font-bold" style={{ color: hiddenTrumpCard.suit === "hearts" || hiddenTrumpCard.suit === "diamonds" ? "#b3261e" : "#201510" }}>
+          <span className="font-card text-base font-bold" style={{ color: hiddenTrumpCard.suit === "hearts" || hiddenTrumpCard.suit === "diamonds" ? "#b3261e" : "#201510" }}>
             {hiddenTrumpCard.rank}
           </span>
-          <span className="text-[0.55rem] text-[var(--gold-bright)]">♚</span>
+          <span className="text-sm text-[var(--gold-bright)]">♚</span>
         </motion.span>
       )}
       {isThinking && (

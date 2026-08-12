@@ -3,7 +3,7 @@
 import type { PlayerViewState, Card, LegalMove, Suit, Rank } from '@/engine/types';
 import type { AgentProfile } from './profiles';
 import { callLLM } from './providers';
-import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt } from './prompts';
+import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt } from './prompts';
 
 interface AgentDecision {
   action: string;
@@ -37,6 +37,8 @@ export async function getAgentDecision(
   const phase = state.phase;
   if (phase === 'bidding') {
     ({ system, user } = buildBiddingPrompt(profile, state));
+  } else if (phase === 'rebidding') {
+    ({ system, user } = buildRebiddingPrompt(profile, state));
   } else if (phase === 'selectingTrump') {
     ({ system, user } = buildTrumpSelectionPrompt(profile, state));
   } else {
