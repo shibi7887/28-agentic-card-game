@@ -18,6 +18,11 @@ export function getProviderConfig(provider: string): ProviderConfig {
         baseURL: 'https://api.deepseek.com/v1',
         apiKey: process.env.DEEPSEEK_API_KEY || '',
       };
+    case 'ollama':
+      return {
+        baseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
+        apiKey: process.env.OLLAMA_API_KEY || 'ollama', // Ollama needs no key; dummy value
+      };
     case 'openrouter':
       return {
         baseURL: 'https://openrouter.ai/api/v1',

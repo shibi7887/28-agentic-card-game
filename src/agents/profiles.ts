@@ -5,9 +5,17 @@ export interface AgentProfile {
   name: string;
   persona: string;
   strategyStyle: string;
-  provider: string;       // 'openai' | 'anthropic' | 'deepseek' | 'openrouter'
+  provider: string;       // 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama'
   model: string;           // model ID for the provider
   temperature: number;
+}
+
+/** Parse a temperature env var safely (falls back to default) */
+function temp(env: string | undefined, fallback: number): number {
+  if (env === undefined || env === '') return fallback;
+  const n = parseFloat(env);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(2, Math.max(0, n));
 }
 
 // Default profiles — can be overridden via env vars or settings
@@ -19,7 +27,7 @@ export const DEFAULT_AGENT_PROFILES: Record<string, AgentProfile> = {
     strategyStyle: 'Supportive — plays to help partner win tricks. Conservative bidding, cooperative play.',
     provider: process.env.AGENT_PARTNER_PROVIDER || 'deepseek',
     model: process.env.AGENT_PARTNER_MODEL || 'deepseek-chat',
-    temperature: 0.3,
+    temperature: temp(process.env.AGENT_PARTNER_TEMPERATURE, 0.3),
   },
   opponent1: {
     id: 'opponent1',
@@ -28,7 +36,7 @@ export const DEFAULT_AGENT_PROFILES: Record<string, AgentProfile> = {
     strategyStyle: 'Aggressive — bids high, plays trump aggressively, takes risks to defeat the bidder.',
     provider: process.env.AGENT_OPPONENT1_PROVIDER || 'deepseek',
     model: process.env.AGENT_OPPONENT1_MODEL || 'deepseek-chat',
-    temperature: 0.5,
+    temperature: temp(process.env.AGENT_OPPONENT1_TEMPERATURE, 0.5),
   },
   opponent2: {
     id: 'opponent2',
@@ -37,7 +45,7 @@ export const DEFAULT_AGENT_PROFILES: Record<string, AgentProfile> = {
     strategyStyle: 'Unpredictable — mixes conservative and aggressive play. Hard to read, sometimes bluffs.',
     provider: process.env.AGENT_OPPONENT2_PROVIDER || 'deepseek',
     model: process.env.AGENT_OPPONENT2_MODEL || 'deepseek-chat',
-    temperature: 0.7,
+    temperature: temp(process.env.AGENT_OPPONENT2_TEMPERATURE, 0.7),
   },
 };
 

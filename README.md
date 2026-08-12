@@ -24,25 +24,80 @@ npm run dev
 
 - **Node.js** 18+
 - **LLM API key** — one of:
-  - [OpenRouter](https://openrouter.ai/) (recommended — supports most models, free tier available)
+  - [DeepSeek](https://platform.deepseek.com/) (default)
+  - [OpenRouter](https://openrouter.ai/) (supports most models, free tier available)
   - [OpenAI](https://platform.openai.com/)
-  - [DeepSeek](https://platform.deepseek.com/)
+  - [Ollama](https://ollama.com/) (local — no API key needed)
 
 ## Configuration
 
-Edit `.env.local` with your preferred provider:
+Edit `.env.local` with your preferred provider. Each agent can use a different provider and model.
+
+### Providers
 
 ```env
-# Primary provider (recommended)
+# DeepSeek (default)
+DEEPSEEK_API_KEY=sk-your-key-here
+
+# OpenRouter (alternative — supports many models)
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 
-# Agent model customization (optional)
-AGENT_PARTNER_MODEL=openai/gpt-4o-mini
-AGENT_OPPONENT1_MODEL=openai/gpt-4o-mini
-AGENT_OPPONENT2_MODEL=openai/gpt-4o-mini
+# OpenAI
+OPENAI_API_KEY=sk-your-key-here
+
+# Ollama (local — no API key needed, runs on your machine)
+# OLLAMA_BASE_URL=http://localhost:11434/v1
 ```
 
-Different agents can use different models for varied play styles.
+### Agents (provider, model, and temperature per seat)
+
+```env
+# Raman (partner) — conservative
+AGENT_PARTNER_PROVIDER=deepseek
+AGENT_PARTNER_MODEL=deepseek-chat
+AGENT_PARTNER_TEMPERATURE=0.3
+
+# Krishnan (opponent) — aggressive
+AGENT_OPPONENT1_PROVIDER=deepseek
+AGENT_OPPONENT1_MODEL=deepseek-chat
+AGENT_OPPONENT1_TEMPERATURE=0.5
+
+# Kunjappu (opponent) — unpredictable
+AGENT_OPPONENT2_PROVIDER=deepseek
+AGENT_OPPONENT2_MODEL=deepseek-chat
+AGENT_OPPONENT2_TEMPERATURE=0.7
+```
+
+### Temperature
+
+Temperature controls how random/risky each AI plays:
+
+| Value | Behavior |
+|-------|----------|
+| `0.0` | Fully deterministic — safe, predictable play |
+| `0.3` | Conservative |
+| `0.5` | Balanced |
+| `0.7` | Creative, risk-taking |
+| `1.0+` | Highly unpredictable |
+
+Lower values make opponents play safer. If opponents are bidding too aggressively, drop `AGENT_OPPONENT*_TEMPERATURE` toward `0.1`.
+
+### Using Ollama (local models)
+
+1. Install [Ollama](https://ollama.com/) and pull a model:
+   ```bash
+   ollama pull llama3.2   # or qwen2.5, mistral, etc.
+   ```
+2. Configure agents to use it:
+   ```env
+   AGENT_PARTNER_PROVIDER=ollama
+   AGENT_PARTNER_MODEL=llama3.2
+   AGENT_OPPONENT1_PROVIDER=ollama
+   AGENT_OPPONENT1_MODEL=llama3.2
+   AGENT_OPPONENT2_PROVIDER=ollama
+   AGENT_OPPONENT2_MODEL=llama3.2
+   ```
+3. Smaller local models tend to be less disciplined about JSON output — lower their temperature (e.g. `0.1`) for reliability. The pipeline auto-retries and falls back on invalid responses.
 
 ## How to Play
 
