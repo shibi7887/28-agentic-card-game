@@ -2,6 +2,7 @@
 
 import type { PlayerViewState, Card } from "@/engine/types";
 import { formatCard, createDeck } from "@/engine/cards";
+import { evaluateOpeningHand } from "@/engine/bidding";
 import type { AgentProfile } from "./profiles";
 
 function describeHand(hand: PlayerViewState["hand"]): string {
@@ -116,6 +117,8 @@ export function buildBiddingPrompt(
   profile: AgentProfile,
   state: PlayerViewState,
 ): { system: string; user: string } {
+  const { maxBid, points, note } = evaluateOpeningHand(state.hand);
+
   const system = `${buildGameRulesContext()}
 
 You are ${profile.name}, with playing style: ${profile.strategyStyle}
@@ -124,10 +127,10 @@ BIDDING PHASE: You have only 4 cards now. You must either bid higher than the cu
 
 CRITICAL — BIDDING DISCIPLINE:
 - You have only 4 cards in hand right now. You will receive 4 MORE cards after bidding, and then get a SECOND chance to raise the bid to 23+ (the "rebid").
-- Therefore, with only 4 cards, NEVER bid above 20-21. Bidding 24, 25, or 28 on just 4 cards is reckless and almost always loses.
+- HARD LIMIT: your 4-card hand supports a maximum opening bid of ${maxBid}. NEVER bid above ${maxBid} in this opening round.
+- ${note}
+- If the current bid is already at or above ${maxBid}, PASS — do not overcommit on only 4 cards.
 - Reserve high bids (23+) for the REBID phase, after you have seen all 8 cards and know your hand is strong.
-- Bid 14-18 with a decent hand, 19-21 only with a very strong 4-card hand (e.g. two Jacks or a Jack+9 in the same suit).
-- Pass if your 4 cards are weak (few point cards, no suit strength).
 - Do not get dragged into a bidding war — if opponents keep raising, pass and let them overcommit.`;
 
   const currentBid = state.bid ? state.bid.amount : "none";
@@ -140,7 +143,7 @@ Your hand (4 cards): ${describeHand(state.hand)}
 Current bid: ${currentBid}
 Bid history:\n${bidHistory || "(no bids yet)"}
 Minimum bid you can make: ${state.bid ? state.bid.amount + 1 : 14}
-(Remember: you only have 4 cards — do not bid above 20-21. Save 23+ for the rebid after you see all 8 cards.)
+Hand strength: ${points} points — max opening bid ${maxBid}. Do not bid above ${maxBid}. If the minimum required bid exceeds ${maxBid}, pass.
 
 You are Player ${state.playerIndex} (Team ${state.teamIndex}).
 

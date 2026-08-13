@@ -1,6 +1,7 @@
 // Thuruppu Game Engine — Public API re-exports
 export * from './types';
 export * from './cards';
+export * from './bidding';
 export {
   createGame,
   getLegalMoves,

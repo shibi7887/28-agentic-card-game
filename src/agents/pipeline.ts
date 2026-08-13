@@ -4,6 +4,7 @@ import type { PlayerViewState, Card, LegalMove, Suit, Rank } from '@/engine/type
 import type { AgentProfile } from './profiles';
 import { callLLM } from './providers';
 import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt } from './prompts';
+import { evaluateOpeningHand, chooseMaxLegalBid } from '@/engine/bidding';
 
 interface AgentDecision {
   action: string;
@@ -11,6 +12,40 @@ interface AgentDecision {
   cardSuit?: string;
   cardRank?: string;
   reasoning?: string;
+}
+
+/**
+ * Enforce the conservative opening-bid cap: with only 4 cards, no agent may
+ * bid above the deterministic max for its hand. If the legal minimum already
+ * exceeds the cap, the agent must pass.
+ */
+function clampOpeningBid(
+  name: string,
+  state: PlayerViewState,
+  proposed: { type: 'bid'; amount: number },
+): { move: LegalMove; reasoning: string } {
+  const { maxBid } = evaluateOpeningHand(state.hand);
+  if (proposed.amount <= maxBid) {
+    return { move: proposed, reasoning: '' };
+  }
+
+  const capped = chooseMaxLegalBid(state.legalMoves, maxBid);
+  if (capped !== null) {
+    console.warn(`Agent ${name} opening bid ${proposed.amount} clamped to ${capped} (max ${maxBid}).`);
+    return {
+      move: { type: 'bid', amount: capped },
+      reasoning: `Opening bid capped at ${maxBid} with only 4 cards; bidding ${capped}.`,
+    };
+  }
+
+  const pass = state.legalMoves.find((m) => m.type === 'pass');
+  if (pass) {
+    console.warn(`Agent ${name} opening bid ${proposed.amount} exceeds cap ${maxBid} — passing.`);
+    return { move: pass, reasoning: `Minimum required bid exceeds my hand's max opening bid (${maxBid}); passing.` };
+  }
+
+  // No legal bid ≤ cap and no pass available (edge case) — keep the proposal.
+  return { move: proposed, reasoning: '' };
 }
 
 function stripMarkdownFences(text: string): string {
@@ -68,6 +103,14 @@ export async function getAgentDecision(
       const move = parseDecision(parsed, legalMoves);
 
       if (move) {
+        // Enforce the conservative opening-bid cap in the 4-card bidding phase.
+        if (state.phase === 'bidding' && move.type === 'bid') {
+          const clamped = clampOpeningBid(profile.name, state, move);
+          return {
+            move: clamped.move,
+            reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
+          };
+        }
         return { move, reasoning: parsed.reasoning || 'No reasoning provided' };
       }
 
@@ -106,11 +149,25 @@ function smartFallback(
   state: PlayerViewState,
   legalMoves: LegalMove[],
 ): { move: LegalMove; reasoning: string } {
-  // Prefer non-pass moves in bidding — but bid conservatively.
+  // Prefer non-pass moves in bidding — but respect the deterministic opening-bid cap.
   const bidMoves = legalMoves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
   if (bidMoves.length > 0) {
+    // The opening-bid cap applies ONLY to the 4-card bidding phase.
+    // During the rebid phase (23+ after the 8-card deal) the low bids are
+    // already excluded by the engine, so pick the lowest legal bid.
+    const openingBid = state.phase === 'bidding';
+    const { maxBid } = openingBid ? evaluateOpeningHand(state.hand) : { maxBid: 28 };
+    const minBid = bidMoves[0].amount;
+    if (openingBid && minBid > maxBid) {
+      // Every legal bid exceeds the cap — prefer passing over an overbid.
+      const passMove = legalMoves.find(m => m.type === 'pass');
+      if (passMove) {
+        console.warn(`Agent ${name} using fallback pass (min bid ${minBid} exceeds cap ${maxBid})`);
+        return { move: passMove, reasoning: `Fallback: pass (hand max ${maxBid})` };
+      }
+    }
     // Pick the LOWEST legal bid (conservative — avoid reckless overbids).
-    const low = bidMoves.find(b => b.amount <= 21) ?? bidMoves[0];
+    const low = bidMoves[0];
     console.warn(`Agent ${name} using fallback bid: ${low.amount}`);
     return { move: low, reasoning: 'Fallback: conservative bid' };
   }

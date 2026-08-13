@@ -1,0 +1,87 @@
+// Thuruppu Game Engine — Deterministic opening-bid evaluation
+//
+// The AI must not bid recklessly with only 4 cards in hand. This module
+// computes a conservative maximum opening bid from hand strength, so the
+// LLM cannot over-commit before the second deal and the rebid phase.
+
+import type { Card, Rank, LegalMove } from './types';
+import { ALL_SUITS, countPoints } from './cards';
+
+// Control weight per rank: reflects both point value and trick-taking power.
+const CONTROL: Record<Rank, number> = {
+  J: 4, '9': 3, A: 2, '10': 1, K: 0, Q: 0, '8': 0, '7': 0,
+};
+
+export interface OpeningHandEvaluation {
+  maxBid: number;   // highest sensible opening bid (14–18)
+  points: number;   // raw point total of the 4-card hand
+  score: number;    // internal strength score used to derive maxBid
+  note: string;     // human-readable rationale
+}
+
+/**
+ * Evaluate a 4-card opening hand and return the conservative max bid.
+ *
+ * Score = raw points + bonuses for:
+ *  - holding both J and 9 of the same suit (strong trump signal)  +2
+ *  - 3+ cards of a single suit (length / trump depth)             +1/+2
+ *  - two or more Jacks                                            +2
+ *
+ * Score → maxBid:
+ *   ≤4 → 14, ≤8 → 15, ≤10 → 16, ≤12 → 17, else → 18
+ */
+export function evaluateOpeningHand(hand: Card[]): OpeningHandEvaluation {
+  const points = countPoints(hand);
+
+  const j9Bonus = ALL_SUITS.some(
+    (s) => hand.some((c) => c.suit === s && c.rank === 'J') &&
+           hand.some((c) => c.suit === s && c.rank === '9'),
+  )
+    ? 2
+    : 0;
+
+  const maxLen = ALL_SUITS.reduce(
+    (best, s) => Math.max(best, hand.filter((c) => c.suit === s).length),
+    0,
+  );
+  const lengthBonus = maxLen >= 4 ? 2 : maxLen === 3 ? 1 : 0;
+
+  const jackCount = hand.filter((c) => c.rank === 'J').length;
+  const jackBonus = jackCount >= 2 ? 2 : 0;
+
+  const score = points + j9Bonus + lengthBonus + jackBonus;
+
+  let maxBid: number;
+  let note: string;
+  if (score <= 4) {
+    maxBid = 14;
+    note = 'Weak opening hand — bid the minimum or pass.';
+  } else if (score <= 8) {
+    maxBid = 15;
+    note = 'Moderate hand — a modest raise is acceptable.';
+  } else if (score <= 10) {
+    maxBid = 16;
+    note = 'Strong hand with suit structure — 16 is the ceiling.';
+  } else if (score <= 12) {
+    maxBid = 17;
+    note = 'Very strong hand — 17 only with exceptional 4-card strength.';
+  } else {
+    maxBid = 18;
+    note = 'Exceptional hand — 18 is the maximum opening bid.';
+  }
+
+  return { maxBid, points, score, note };
+}
+
+/**
+ * Highest legal bid amount at or below `cap`, or null if none exists.
+ */
+export function chooseMaxLegalBid(moves: LegalMove[], cap: number): number | null {
+  let best: number | null = null;
+  for (const m of moves) {
+    if (m.type === 'bid' && m.amount <= cap) {
+      best = best === null ? m.amount : Math.max(best, m.amount);
+    }
+  }
+  return best;
+}
