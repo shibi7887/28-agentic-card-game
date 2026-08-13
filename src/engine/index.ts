@@ -8,4 +8,5 @@ export {
   getTrickWinner,
   getPlayerView,
   computeRoundResult,
+  concedeGame,
 } from './game';

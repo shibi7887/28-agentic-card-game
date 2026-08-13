@@ -1,11 +1,67 @@
 // Prompt templates for AI agent decisions
 
-import type { PlayerViewState } from '@/engine/types';
-import { formatCard } from '@/engine/cards';
-import type { AgentProfile } from './profiles';
+import type { PlayerViewState, Card } from "@/engine/types";
+import { formatCard, createDeck } from "@/engine/cards";
+import type { AgentProfile } from "./profiles";
 
-function describeHand(hand: PlayerViewState['hand']): string {
-  return hand.map(c => formatCard(c)).join(', ');
+function describeHand(hand: PlayerViewState["hand"]): string {
+  return hand.map((c) => formatCard(c)).join(", ");
+}
+
+/** Card-counting memory: played cards, remaining cards, and points won per team. */
+function buildCardMemory(state: PlayerViewState): string {
+  // Collect all played cards (completed tricks + current in-progress trick)
+  const played: Card[] = [];
+  for (const t of state.tricks) {
+    for (const tc of t.cards) played.push(tc.card);
+  }
+  for (const c of state.currentTrick.cards) {
+    if (c) played.push(c.card);
+  }
+
+  // Points won per team so far this round
+  let team0Points = 0;
+  let team1Points = 0;
+  for (const t of state.tricks) {
+    if (t.winner === 0 || t.winner === 2) team0Points += t.points;
+    else team1Points += t.points;
+  }
+  const pointsRemaining = 28 - team0Points - team1Points;
+
+  // Trick history summary
+  const history = state.tricks.map(
+    (t) =>
+      `Trick: ${t.cards.map((c) => formatCard(c.card)).join(" ")} → won by Player ${t.winner} (${t.points} pts)`,
+  );
+
+  // Remaining (unaccounted) cards: not yet played, not in my own hand
+  const playedSet = new Set(played.map((c) => `${c.suit}${c.rank}`));
+  const handSet = new Set(state.hand.map((c) => `${c.suit}${c.rank}`));
+  const remainingBySuit: Record<string, string[]> = {};
+  for (const c of createDeck()) {
+    const key = `${c.suit}${c.rank}`;
+    if (!playedSet.has(key) && !handSet.has(key)) {
+      (remainingBySuit[c.suit] ??= []).push(formatCard(c));
+    }
+  }
+  const remaining = ["hearts", "diamonds", "clubs", "spades"].map(
+    (s) => `${s}: ${(remainingBySuit[s] ?? []).join(", ") || "(none)"}`,
+  );
+
+  const myTeam = state.teamIndex;
+  const myTeamPoints = myTeam === 0 ? team0Points : team1Points;
+  const oppPoints = myTeam === 0 ? team1Points : team0Points;
+
+  return `CARD MEMORY (tricks already played this round):
+${history.length > 0 ? history.join("\n") : "(no tricks completed yet)"}
+
+POINTS WON SO FAR this round:
+- Your team: ${myTeamPoints} pts
+- Opponents: ${oppPoints} pts
+- Points still in play: ${pointsRemaining} pts
+
+CARDS STILL UNACCOUNTED (in other players' hands or not yet played):
+${remaining.join("\n")}`;
 }
 
 function buildGameRulesContext(): string {
@@ -31,11 +87,13 @@ CALLING TRUMP (Phase 1, when you cannot follow the led suit):
 - You may "callTrump" BEFORE playing a card. The bidder then reveals the face-down trump card to everyone.
 - You do NOT know the trump suit until it is revealed — calling is a strategic gamble.
 - After calling, you MUST play a trump card to the trick if you have one (else discard any card).
+- CRITICAL: Never keep trump hidden the entire round. If you hold trump and can win a valuable trick, open it.
 - Strategic considerations:
   * If your TEAM is already winning the current trick, do NOT call trump — instead discard a low card, or discard a point card to add value to your team's win.
-  * If the OPPOSING team is winning the current trick, calling trump may let you capture it — especially valuable if the trick contains high-point cards (J, 9, A, 10).
-  * Calling trump reveals the trump suit to EVERYONE, giving opponents an advantage in later tricks. Call only when it materially helps you this trick.
+  * If the OPPOSING team is winning the current trick AND it has point cards (J, 9, A, 10), CALL trump to capture it.
+  * Exception — worth discarding instead of calling: the current trick has ZERO or less then 2 points, and you hold a useless off-suit card (e.g. a lonely K/Q/8/7) you want to dump while keeping your trump for a later high-point trick.
   * A high trump in hand (J or 9) makes calling more attractive — you can win the trick outright.
+  * If you have multiple trumps, using one to cut an opponent's point trick is almost always correct.
 
 SCORING (game points, by bid bracket):
 - Bid ≤19: bidding team gains +1 if successful, loses −2 if failed.
@@ -72,15 +130,15 @@ CRITICAL — BIDDING DISCIPLINE:
 - Pass if your 4 cards are weak (few point cards, no suit strength).
 - Do not get dragged into a bidding war — if opponents keep raising, pass and let them overcommit.`;
 
-  const currentBid = state.bid ? state.bid.amount : 'none';
+  const currentBid = state.bid ? state.bid.amount : "none";
   const bidHistory = state.bidHistory
-    .map(b => `Player ${b.player}: ${b.pass ? 'PASS' : `Bid ${b.amount}`}`)
-    .join('\n');
+    .map((b) => `Player ${b.player}: ${b.pass ? "PASS" : `Bid ${b.amount}`}`)
+    .join("\n");
 
   const user = `CURRENT GAME STATE:
 Your hand (4 cards): ${describeHand(state.hand)}
 Current bid: ${currentBid}
-Bid history:\n${bidHistory || '(no bids yet)'}
+Bid history:\n${bidHistory || "(no bids yet)"}
 Minimum bid you can make: ${state.bid ? state.bid.amount + 1 : 14}
 (Remember: you only have 4 cards — do not bid above 20-21. Save 23+ for the rebid after you see all 8 cards.)
 
@@ -102,7 +160,7 @@ export function buildPlayPrompt(
 ): { system: string; user: string } {
   const trumpStatus = state.trumpRevealed
     ? `Trump is ${state.trumpSuit}. Phase 2: trump is active.`
-    : 'Trump is NOT revealed yet. Phase 1: trump has no special power.';
+    : "Trump is NOT revealed yet. Phase 1: trump has no special power.";
 
   const system = `${buildGameRulesContext()}
 
@@ -114,66 +172,88 @@ Consider your partner's and opponents' likely hands.`;
 
   const leadSuit = state.currentTrick.leadSuit
     ? `Lead suit: ${state.currentTrick.leadSuit}`
-    : 'You are leading this trick.';
+    : "You are leading this trick.";
 
   const trickCards = state.currentTrick.cards
-    .map((c, i) => c ? `Player ${i}: ${formatCard(c.card)}` : null)
+    .map((c, i) => (c ? `Player ${i}: ${formatCard(c.card)}` : null))
     .filter(Boolean)
-    .join(', ');
+    .join(", ");
 
   const tricksWon = state.tricks
-    .filter(t => t.winner === state.playerIndex || t.winner === (state.playerIndex + 2) % 4)
+    .filter(
+      (t) =>
+        t.winner === state.playerIndex ||
+        t.winner === (state.playerIndex + 2) % 4,
+    )
     .reduce((sum, t) => sum + t.points, 0);
 
   const legalMoves = state.legalMoves
-    .filter(m => m.type === 'playCard')
-    .map(m => formatCard((m as any).card));
+    .filter((m) => m.type === "playCard")
+    .map((m) => formatCard((m as any).card));
 
-  const canCallTrump = state.legalMoves.some(m => m.type === 'callTrump');
+  const canCallTrump = state.legalMoves.some((m) => m.type === "callTrump");
 
   // Determine current trick winner and their team
-  let trickWinnerInfo = '';
-  const placedCards = state.currentTrick.cards.filter(c => c !== null);
+  let trickWinnerInfo = "";
+  const placedCards = state.currentTrick.cards.filter((c) => c !== null);
   if (placedCards.length > 0 && state.currentTrick.leadSuit) {
-    const leadSuitCards = placedCards.filter(c => c!.card.suit === state.currentTrick.leadSuit);
+    const leadSuitCards = placedCards.filter(
+      (c) => c!.card.suit === state.currentTrick.leadSuit,
+    );
     if (leadSuitCards.length > 0) {
       const best = leadSuitCards.reduce((best, c) => {
-        const rankOrder: Record<string, number> = { J: 7, '9': 6, A: 5, '10': 4, K: 3, Q: 2, '8': 1, '7': 0 };
+        const rankOrder: Record<string, number> = {
+          J: 7,
+          "9": 6,
+          A: 5,
+          "10": 4,
+          K: 3,
+          Q: 2,
+          "8": 1,
+          "7": 0,
+        };
         return rankOrder[c!.card.rank] > rankOrder[best!.card.rank] ? c : best;
       });
       const winnerTeam = best!.player % 2;
       const myTeam = state.playerIndex % 2;
-      trickWinnerInfo = winnerTeam === myTeam
-        ? `YOUR TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`
-        : `OPPONENT TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`;
+      trickWinnerInfo =
+        winnerTeam === myTeam
+          ? `YOUR TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`
+          : `OPPONENT TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`;
     }
   }
 
-  const trickPoints = placedCards.reduce((sum, c) => sum + (c ? pointValue(c.card.rank) : 0), 0);
+  const trickPoints = placedCards.reduce(
+    (sum, c) => sum + (c ? pointValue(c.card.rank) : 0),
+    0,
+  );
 
-  const pairInfo = state.bidderPairShown || state.defenderPairShown
-    ? `Pair shown: ${state.bidderPairShown ? 'bidder' : 'defender'} — bid adjusted.`
-    : '';
+  const pairInfo =
+    state.bidderPairShown || state.defenderPairShown
+      ? `Pair shown: ${state.bidderPairShown ? "bidder" : "defender"} — bid adjusted.`
+      : "";
 
   const callTrumpHint = canCallTrump
     ? `\nIMPORTANT: You cannot follow the led suit. You may either (1) discard any card, or (2) "callTrump" to reveal the trump suit (then you must play trump if you hold any). ${trickWinnerInfo} Points currently at stake in this trick: ${trickPoints}. Decide strategically: call trump to capture a trick your team is losing, or discard if your team already wins it.`
-    : '';
+    : "";
 
   const user = `CURRENT GAME STATE:
 Your hand: ${describeHand(state.hand)}
 ${trumpStatus}
 ${leadSuit}
-Trick so far: ${trickCards || '(empty)'}
+Trick so far: ${trickCards || "(empty)"}
 ${trickWinnerInfo}
-Trick number: ${state.trickNumber || '?'} of 8
-Bid: ${state.bid?.amount || '?'} by Player ${state.bid?.bidder || '?'}
+Trick number: ${state.trickNumber || "?"} of 8
+Bid: ${state.bid?.amount || "?"} by Player ${state.bid?.bidder || "?"}
 Points your team has won this round: ${tricksWon}
 Points at stake in current trick: ${trickPoints}
 ${pairInfo}
 ${callTrumpHint}
 
-Legal cards you can play: ${legalMoves.join(', ')}
-${canCallTrump ? 'You may also "callTrump" instead of playing a card.' : ''}
+${buildCardMemory(state)}
+
+Legal cards you can play: ${legalMoves.join(", ")}
+${canCallTrump ? 'You may also "callTrump" instead of playing a card.' : ""}
 
 You are Player ${state.playerIndex} (Team ${state.teamIndex}).
 
@@ -189,7 +269,7 @@ RESPOND with JSON:
 }
 
 function pointValue(rank: string): number {
-  const map: Record<string, number> = { J: 3, '9': 2, A: 1, '10': 1 };
+  const map: Record<string, number> = { J: 3, "9": 2, A: 1, "10": 1 };
   return map[rank] ?? 0;
 }
 

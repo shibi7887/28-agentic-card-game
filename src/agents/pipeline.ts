@@ -92,15 +92,24 @@ export async function getAgentDecision(
   }
 
   // All retries exhausted — use smart fallback
-  return smartFallback(profile.name, legalMoves);
+  return smartFallback(profile.name, state, legalMoves);
 }
 
-function smartFallback(name: string, legalMoves: LegalMove[]): { move: LegalMove; reasoning: string } {
+function cardPoints(rank: Rank): number {
+  return rank === 'J' ? 3 : rank === '9' ? 2 : (rank === 'A' || rank === '10') ? 1 : 0;
+}
+
+const RANK_VALUE: Record<Rank, number> = { J: 7, '9': 6, A: 5, '10': 4, K: 3, Q: 2, '8': 1, '7': 0 };
+
+function smartFallback(
+  name: string,
+  state: PlayerViewState,
+  legalMoves: LegalMove[],
+): { move: LegalMove; reasoning: string } {
   // Prefer non-pass moves in bidding — but bid conservatively.
   const bidMoves = legalMoves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
   if (bidMoves.length > 0) {
     // Pick the LOWEST legal bid (conservative — avoid reckless overbids).
-    // If a low bid (≤21) is available, prefer it; otherwise take the minimum.
     const low = bidMoves.find(b => b.amount <= 21) ?? bidMoves[0];
     console.warn(`Agent ${name} using fallback bid: ${low.amount}`);
     return { move: low, reasoning: 'Fallback: conservative bid' };
@@ -113,18 +122,37 @@ function smartFallback(name: string, legalMoves: LegalMove[]): { move: LegalMove
     return { move: passMove, reasoning: 'Fallback: pass' };
   }
 
-  // For play: prefer highest-ranked playable card
+  // For play: discard the LOWEST-VALUE card, never waste points.
   const playMoves = legalMoves.filter(
     m => m.type === 'playCard' || m.type === 'selectTrump'
   ) as { type: 'playCard' | 'selectTrump'; card: Card }[];
 
   if (playMoves.length > 0) {
-    // Pick highest-ranked card (J=7, 9=6, etc.)
-    const rankOrder: Record<Rank, number> = { J: 7, '9': 6, A: 5, '10': 4, K: 3, Q: 2, '8': 1, '7': 0 };
-    playMoves.sort((a, b) => rankOrder[b.card.rank] - rankOrder[a.card.rank]);
-    const best = playMoves[0];
-    console.warn(`Agent ${name} using fallback play: ${best.card.rank}${best.card.suit}`);
-    return { move: best, reasoning: 'Fallback: highest card' };
+    const leadSuit = state.currentTrick.leadSuit;
+    const cards = playMoves.map(m => m.card);
+
+    let chosen: Card;
+    if (leadSuit === null) {
+      // Leading — dump the least valuable card (0-point, low rank)
+      cards.sort((a, b) =>
+        cardPoints(a.rank) - cardPoints(b.rank) || RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
+      chosen = cards[0];
+    } else {
+      const followers = cards.filter(c => c.suit === leadSuit);
+      if (followers.length > 0) {
+        // Must follow suit — play the lowest card of that suit (preserve high cards)
+        followers.sort((a, b) => RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
+        chosen = followers[0];
+      } else {
+        // Void — discard the lowest point-value card, never waste J/9/A/10
+        cards.sort((a, b) =>
+          cardPoints(a.rank) - cardPoints(b.rank) || RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
+        chosen = cards[0];
+      }
+    }
+
+    console.warn(`Agent ${name} using fallback play: ${chosen.rank}${chosen.suit}`);
+    return { move: { type: 'playCard', card: chosen } as LegalMove, reasoning: 'Fallback: discard lowest value' };
   }
 
   // Last resort: first legal move

@@ -24,6 +24,7 @@ interface GameTableProps {
   latestBatch: PendingPlay[];
   batchId: number;
   onMove: (move: LegalMove) => void;
+  onConcede: () => void;
   onExit: () => void;
 }
 
@@ -49,6 +50,7 @@ export default function GameTable({
   latestBatch,
   batchId,
   onMove,
+  onConcede,
   onExit,
 }: GameTableProps) {
   const isHumanTurn = view.currentPlayer === view.playerIndex;
@@ -431,6 +433,18 @@ export default function GameTable({
               )}
             </motion.div>
           </AnimatePresence>
+
+          {/* Concede — end the match early (configurable) */}
+          {view.allowConcede && view.phase !== "finished" && view.phase !== "scoring" && !loading && (
+            <button
+              type="button"
+              onClick={onConcede}
+              className="rounded-full px-3 py-1 font-ui text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[var(--cream)]/50 transition-colors hover:text-[#e07a5f] hover:shadow-[inset_0_0_0_1px_rgba(224,122,95,0.5)]"
+              style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.25)", background: "rgba(0,0,0,0.15)" }}
+            >
+              Concede
+            </button>
+          )}
 
           {/* Bid grid — bidding (14+) and rebidding (24+) */}
           {(view.phase === "bidding" || view.phase === "rebidding") && isHumanTurn && !loading && (

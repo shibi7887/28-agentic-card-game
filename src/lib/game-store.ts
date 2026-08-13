@@ -2,9 +2,12 @@
 // In production, replace with Redis or database
 
 import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
-import { createGame, applyMove, getPlayerView } from '@/engine/game';
+import { createGame, applyMove, getPlayerView, concedeGame } from '@/engine/game';
 import { getAgentProfile } from '@/agents/profiles';
 import { getAgentDecision } from '@/agents/pipeline';
+
+// Early-concede is enabled by default; set ALLOW_CONCEDE=false to disable.
+const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
 
 interface StoredGame {
   state: GameState;
@@ -73,7 +76,25 @@ export function getGameState(gameId: string): GameState | null {
 export function getHumanView(gameId: string): PlayerViewState | null {
   const game = gameStore.get(gameId);
   if (!game) return null;
-  return getPlayerView(game.state, game.humanPlayer);
+  const view = getPlayerView(game.state, game.humanPlayer);
+  view.allowConcede = ALLOW_CONCEDE;
+  return view;
+}
+
+/** Concede the match for a given player — returns updated view or error. */
+export function processConcede(
+  gameId: string,
+  player: PlayerIndex,
+): { view: PlayerViewState } | { error: string } {
+  const game = gameStore.get(gameId);
+  if (!game) return { error: 'Game not found' };
+  if (!ALLOW_CONCEDE) return { error: 'Concede is disabled' };
+  if (game.state.phase === 'finished') return { error: 'Game already finished' };
+
+  game.state = concedeGame(game.state, player);
+  const view = getPlayerView(game.state, game.humanPlayer);
+  view.allowConcede = ALLOW_CONCEDE;
+  return { view };
 }
 
 export function processHumanMove(

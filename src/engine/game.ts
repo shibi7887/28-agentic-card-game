@@ -532,6 +532,16 @@ function handleRedeal(state: GameState): GameState {
   };
 }
 
+/** Concede the match — conceding team loses, game ends immediately. */
+export function concedeGame(state: GameState, concedingPlayer: PlayerIndex): GameState {
+  const s = cloneState(state);
+  const concedingTeam = getTeam(concedingPlayer);
+  s.winner = (concedingTeam === 0 ? 1 : 0) as TeamIndex;
+  s.phase = 'finished';
+  s.roundComplete = true;
+  return s;
+}
+
 function handlePlayCard(state: GameState, card: Card): GameState {
   const s = cloneState(state);
   const player = s.currentPlayer;
@@ -710,6 +720,7 @@ export function getPlayerView(state: GameState, playerIndex: PlayerIndex): Playe
       : null,
     // Trump card itself — visible to everyone after reveal, persists after played
     trumpCard: state.trumpRevealed ? state.trumpCard : null,
+    allowConcede: false, // overridden by the store based on env config
     roundComplete: state.roundComplete,
     roundResult: state.roundResult,
     winner: state.winner,

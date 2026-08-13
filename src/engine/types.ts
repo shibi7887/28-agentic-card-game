@@ -92,6 +92,7 @@ export interface PlayerViewState {
   scores: { team0: number; team1: number };
   trickNumber: number;
   hiddenTrumpCard: Card | null;                  // visible only to the bidder
+  allowConcede: boolean;                         // whether early-concede is enabled
   roundComplete: boolean;
   roundResult: GameState['roundResult'];
   winner: TeamIndex | null;

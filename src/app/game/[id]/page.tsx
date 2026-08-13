@@ -216,6 +216,20 @@ export default function GamePage() {
 
   if (!view) return null;
 
+  const concede = async () => {
+    try {
+      const res = await fetch(`/api/game/${gameId}/concede`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setView(data.view);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <GameTable
       view={view}
@@ -224,6 +238,7 @@ export default function GamePage() {
       latestBatch={latestBatch}
       batchId={batchId}
       onMove={submitMove}
+      onConcede={concede}
       onExit={() => router.push("/")}
     />
   );
