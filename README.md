@@ -29,7 +29,7 @@ npm run dev
   - [OpenAI](https://platform.openai.com/)
   - [Ollama](https://ollama.com/) (local — no API key needed)
   - [SGLang](https://github.com/sgl-project/sglang) / [vLLM](https://docs.vllm.ai/) (local, faster — see below)
-- **Python 3.10+ and [uv](https://docs.astral.sh/uv/)** — only if using the SGLang/vLLM local server
+- **[uv](https://docs.astral.sh/uv/)** — only if using the local SGLang server (provisions its own Python 3.12)
 
 ## Configuration
 
@@ -57,27 +57,40 @@ OPENAI_API_KEY=sk-your-key-here
 # VLLM_BASE_URL=http://localhost:8000/v1
 ```
 
-### SGLang / vLLM (fast local inference)
+### SGLang (fast local inference)
 
-On an NVIDIA GPU, SGLang and vLLM are significantly faster than Ollama — they use prefix caching (our prompts are near-identical every turn) and FP8 quantization, and SGLang's guided JSON decoding nearly eliminates invalid-response fallbacks.
+On an NVIDIA GPU, SGLang is significantly faster than Ollama — it uses prefix caching (our prompts are near-identical every turn), FP8/AWQ quantization, and guided JSON decoding that nearly eliminates invalid-response fallbacks.
 
 ```bash
-# 1. Create the venv + install the serving stack (uses uv)
-uv sync --python 3.10
+# 1. Serve a model (creates the venv + installs SGLang on first run)
+./scripts/serve-sglang.sh Qwen/Qwen3-8B 30000
 
-# 2. Serve a model (first run pulls it from HuggingFace)
-./scripts/serve-sglang.sh Qwen/Qwen3-14B 30000
-
-# 3. Point agents at it in .env.local
+# 2. Point agents at it in .env.local
 AGENT_PARTNER_PROVIDER=sglang
-AGENT_PARTNER_MODEL=Qwen/Qwen3-14B
+AGENT_PARTNER_MODEL=Qwen/Qwen3-8B
 AGENT_OPPONENT1_PROVIDER=sglang
-AGENT_OPPONENT1_MODEL=Qwen/Qwen3-14B
+AGENT_OPPONENT1_MODEL=Qwen/Qwen3-8B
 AGENT_OPPONENT2_PROVIDER=sglang
-AGENT_OPPONENT2_MODEL=Qwen/Qwen3-14B
+AGENT_OPPONENT2_MODEL=Qwen/Qwen3-8B
 ```
 
-The serve script defaults to FP8 quantization with configurable GPU memory (`GPU_MEM`) and quantization (`QUANT`) env vars. Optional vLLM install: `uv sync --group vllm`.
+The server exposes `http://localhost:30000/v1/chat/completions`. Models download to `~/.cache/huggingface/hub` (override with `HF_HOME`).
+
+**GPU memory:** bf16 uses ~2 bytes/param. `Qwen3-8B` ≈ 16 GB (fits a 24 GB card); plain `Qwen3-14B` ≈ 28 GB (does **not** fit). For 14B on a 24 GB card, use a pre-quantized checkpoint:
+
+```bash
+./scripts/serve-sglang.sh Qwen/Qwen3-14B-AWQ 30000 --quantization awq
+```
+
+**Options:**
+```bash
+./scripts/serve-sglang.sh [model] [port] --gpu-mem 0.7    # use less VRAM
+./scripts/serve-sglang.sh [model] [port] --quantization fp8
+```
+
+The serve script is a thin shell wrapper (sanitizes the environment) that delegates to `scripts/serve_sglang.py`, which calls SGLang's Python API directly.
+
+> **Note:** the script requires a clean, non-conda Python 3.12 (it uses `uv` to provision one). It automatically strips anaconda from `PATH`/`LD_LIBRARY_PATH` because anaconda's old `libstdc++` breaks flashinfer's JIT kernels.
 
 ### Agents (provider, model, and temperature per seat)
 
@@ -228,7 +241,7 @@ src/
 | `npm run start` | Start production server |
 | `npm test` | Run engine tests (vitest) |
 | `npm run test:watch` | Watch mode tests |
-| `uv sync --python 3.10` | Create `.venv/` + install the SGLang serving stack |
+| `uv sync --python 3.12` | Create `.venv/` + install the SGLang serving stack |
 | `./scripts/serve-sglang.sh [model] [port]` | Serve a model locally with SGLang |
 
 ## Notes
