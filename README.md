@@ -57,15 +57,17 @@ OPENAI_API_KEY=sk-your-key-here
 # VLLM_BASE_URL=http://localhost:8000/v1
 ```
 
-### SGLang (fast local inference)
+### SGLang / vLLM (fast local inference)
 
-On an NVIDIA GPU, SGLang is significantly faster than Ollama — it uses prefix caching (our prompts are near-identical every turn), FP8/AWQ quantization, and guided JSON decoding that nearly eliminates invalid-response fallbacks.
+On an NVIDIA GPU, SGLang and vLLM are significantly faster than Ollama — prefix caching (our prompts are near-identical every turn), FP8/AWQ quantization, and guided JSON decoding that nearly eliminates invalid-response fallbacks. They have **incompatible torch versions**, so they live in **separate venvs** (`.venv` for SGLang, `.venv-vllm` for vLLM).
+
+#### SGLang (recommended — best prefix caching + guided JSON)
 
 ```bash
-# 1. Serve a model (creates the venv + installs SGLang on first run)
+# Serve a model (creates .venv + installs SGLang on first run)
 ./scripts/serve-sglang.sh Qwen/Qwen3-8B 30000
 
-# 2. Point agents at it in .env.local
+# Point agents at it in .env.local
 AGENT_PARTNER_PROVIDER=sglang
 AGENT_PARTNER_MODEL=Qwen/Qwen3-8B
 AGENT_OPPONENT1_PROVIDER=sglang
@@ -74,12 +76,24 @@ AGENT_OPPONENT2_PROVIDER=sglang
 AGENT_OPPONENT2_MODEL=Qwen/Qwen3-8B
 ```
 
-The server exposes `http://localhost:30000/v1/chat/completions`. Models download to `~/.cache/huggingface/hub` (override with `HF_HOME`).
+#### vLLM (alternative)
+
+```bash
+# Serve a model (creates .venv-vllm + installs vLLM on first run)
+./scripts/serve-vllm.sh Qwen/Qwen3-8B 8000
+
+# Point agents at it in .env.local
+AGENT_PARTNER_PROVIDER=vllm
+AGENT_PARTNER_MODEL=Qwen/Qwen3-8B
+```
+
+Both expose OpenAI-compatible endpoints (`http://localhost:PORT/v1/chat/completions`). Models download to `~/.cache/huggingface/hub` (override with `HF_HOME`).
 
 **GPU memory:** bf16 uses ~2 bytes/param. `Qwen3-8B` ≈ 16 GB (fits a 24 GB card); plain `Qwen3-14B` ≈ 28 GB (does **not** fit). For 14B on a 24 GB card, use a pre-quantized checkpoint:
 
 ```bash
 ./scripts/serve-sglang.sh Qwen/Qwen3-14B-AWQ 30000 --quantization awq
+./scripts/serve-vllm.sh   Qwen/Qwen3-14B-AWQ 8000  --quantization awq
 ```
 
 **Options:**
@@ -88,9 +102,9 @@ The server exposes `http://localhost:30000/v1/chat/completions`. Models download
 ./scripts/serve-sglang.sh [model] [port] --quantization fp8
 ```
 
-The serve script is a thin shell wrapper (sanitizes the environment) that delegates to `scripts/serve_sglang.py`, which calls SGLang's Python API directly.
+Each serve script is a thin shell wrapper (sanitizes the environment) that delegates to a Python launcher (`serve_sglang.py` / `serve_vllm.py`).
 
-> **Note:** the script requires a clean, non-conda Python 3.12 (it uses `uv` to provision one). It automatically strips anaconda from `PATH`/`LD_LIBRARY_PATH` because anaconda's old `libstdc++` breaks flashinfer's JIT kernels.
+> **Note:** both scripts require a clean, non-conda Python 3.12 (they use `uv` to provision one). They automatically strip anaconda from `PATH`/`LD_LIBRARY_PATH` because anaconda's old `libstdc++` breaks flashinfer's JIT kernels.
 
 ### Agents (provider, model, and temperature per seat)
 
@@ -243,6 +257,7 @@ src/
 | `npm run test:watch` | Watch mode tests |
 | `uv sync --python 3.12` | Create `.venv/` + install the SGLang serving stack |
 | `./scripts/serve-sglang.sh [model] [port]` | Serve a model locally with SGLang |
+| `./scripts/serve-vllm.sh [model] [port]` | Serve a model locally with vLLM (separate `.venv-vllm`) |
 
 ## Notes
 

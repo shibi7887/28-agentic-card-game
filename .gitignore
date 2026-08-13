@@ -11,5 +11,6 @@ next-env.d.ts
 
 # Python (uv) serving stack
 .venv/
+.venv-vllm/
 __pycache__/
 *.pyc

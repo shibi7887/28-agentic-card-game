@@ -1,7 +1,7 @@
 [project]
 name = "thuruppu-serve"
 version = "0.1.0"
-description = "Local LLM serving stack for the Thuruppu (28) card game — SGLang inference server"
+description = "Local LLM serving stack for the Thuruppu (28) card game — SGLang inference server (primary)"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 
@@ -10,6 +10,10 @@ dependencies = [
     # 0.4.x had a torch/torchao version mismatch; 0.5.x pins a consistent set.
     "sglang[all]>=0.5.9",
 ]
+
+# vLLM is an ALTERNATIVE inference engine with an INCOMPATIBLE torch pin
+# (torch 2.13 vs SGLang's 2.9), so it lives in its own venv (.venv-vllm)
+# managed by scripts/serve-vllm.sh — NOT in this project's dependency list.
 
 [tool.uv]
 # Pin a CUDA-capable torch via PyPI (SGLang pulls its own compatible torch).
