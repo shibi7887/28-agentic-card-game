@@ -15,6 +15,7 @@ flags (--model, --port, --quantization, --gpu-memory-utilization, ...).
 from __future__ import annotations
 
 import sys
+import asyncio
 
 from vllm.entrypoints.openai.api_server import run_server
 from vllm.entrypoints.openai.cli_args import make_arg_parser, validate_parsed_serve_args
@@ -29,7 +30,8 @@ def main() -> None:
     validate_parsed_serve_args(args)
 
     print(f"Serving {args.model} on http://{args.host}:{args.port}", flush=True)
-    run_server(args)
+    # run_server(args)
+    asyncio.run(run_server(args))
 
 
 if __name__ == "__main__":

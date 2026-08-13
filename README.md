@@ -81,6 +81,7 @@ AGENT_OPPONENT2_MODEL=Qwen/Qwen3-8B
 ```bash
 # Serve a model (creates .venv-vllm + installs vLLM on first run)
 ./scripts/serve-vllm.sh Qwen/Qwen3-8B 8000
+./scripts/serve-vllm.sh Qwen/Qwen3-8B 30001 --max-model-len 8192
 
 # Point agents at it in .env.local
 AGENT_PARTNER_PROVIDER=vllm
