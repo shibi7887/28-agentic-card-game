@@ -96,13 +96,21 @@ export async function getAgentDecision(
 }
 
 function smartFallback(name: string, legalMoves: LegalMove[]): { move: LegalMove; reasoning: string } {
-  // Prefer non-pass moves in bidding
+  // Prefer non-pass moves in bidding — but bid conservatively.
   const bidMoves = legalMoves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
   if (bidMoves.length > 0) {
-    // Pick the middle bid (balanced strategy)
-    const mid = bidMoves[Math.floor(bidMoves.length / 2)];
-    console.warn(`Agent ${name} using fallback bid: ${mid.amount}`);
-    return { move: mid, reasoning: 'Fallback: balanced bid' };
+    // Pick the LOWEST legal bid (conservative — avoid reckless overbids).
+    // If a low bid (≤21) is available, prefer it; otherwise take the minimum.
+    const low = bidMoves.find(b => b.amount <= 21) ?? bidMoves[0];
+    console.warn(`Agent ${name} using fallback bid: ${low.amount}`);
+    return { move: low, reasoning: 'Fallback: conservative bid' };
+  }
+
+  // Prefer passing over nothing when no bid is possible
+  const passMove = legalMoves.find(m => m.type === 'pass');
+  if (passMove) {
+    console.warn(`Agent ${name} using fallback pass`);
+    return { move: passMove, reasoning: 'Fallback: pass' };
   }
 
   // For play: prefer highest-ranked playable card
