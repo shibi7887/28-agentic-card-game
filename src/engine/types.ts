@@ -42,6 +42,7 @@ export interface GameState {
   trumpRevealed: boolean;
   changingTrump: boolean;                        // bidder may change trump after raising rebid
   preRebidBid: number | null;                    // bid amount before the rebid phase
+  mustPlayTrump: boolean;                        // trump caller must now play a trump (if held)
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
   rebidPlayers: PlayerIndex[];                   // players who may still rebid (24+ after 8-card deal)

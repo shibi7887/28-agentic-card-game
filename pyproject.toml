@@ -1,0 +1,17 @@
+[project]
+name = "thuruppu-serve"
+version = "0.1.0"
+description = "Local LLM serving stack for the Thuruppu (28) card game — SGLang inference server"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+
+dependencies = [
+    # SGLang with all accelerators (FlashInfer, xgrammar guided JSON, etc.)
+    # 0.4.x had a torch/torchao version mismatch; 0.5.x pins a consistent set.
+    "sglang[all]>=0.5.9",
+]
+
+[tool.uv]
+# Pin a CUDA-capable torch via PyPI (SGLang pulls its own compatible torch).
+# Add this index if the default PyPI torch lacks your GPU's CUDA build:
+# index-url = "https://download.pytorch.org/whl/cu124"

@@ -5,7 +5,7 @@ export interface AgentProfile {
   name: string;
   persona: string;
   strategyStyle: string;
-  provider: string;       // 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama'
+  provider: string;       // 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama' | 'sglang' | 'vllm'
   model: string;           // model ID for the provider
   temperature: number;
 }

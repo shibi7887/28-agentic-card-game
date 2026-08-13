@@ -28,6 +28,8 @@ npm run dev
   - [OpenRouter](https://openrouter.ai/) (supports most models, free tier available)
   - [OpenAI](https://platform.openai.com/)
   - [Ollama](https://ollama.com/) (local — no API key needed)
+  - [SGLang](https://github.com/sgl-project/sglang) / [vLLM](https://docs.vllm.ai/) (local, faster — see below)
+- **Python 3.10+ and [uv](https://docs.astral.sh/uv/)** — only if using the SGLang/vLLM local server
 
 ## Configuration
 
@@ -47,7 +49,35 @@ OPENAI_API_KEY=sk-your-key-here
 
 # Ollama (local — no API key needed, runs on your machine)
 # OLLAMA_BASE_URL=http://localhost:11434/v1
+
+# SGLang (local, faster — see "SGLang / vLLM" section)
+# SGLANG_BASE_URL=http://localhost:30000/v1
+
+# vLLM (local alternative)
+# VLLM_BASE_URL=http://localhost:8000/v1
 ```
+
+### SGLang / vLLM (fast local inference)
+
+On an NVIDIA GPU, SGLang and vLLM are significantly faster than Ollama — they use prefix caching (our prompts are near-identical every turn) and FP8 quantization, and SGLang's guided JSON decoding nearly eliminates invalid-response fallbacks.
+
+```bash
+# 1. Create the venv + install the serving stack (uses uv)
+uv sync --python 3.10
+
+# 2. Serve a model (first run pulls it from HuggingFace)
+./scripts/serve-sglang.sh Qwen/Qwen3-14B 30000
+
+# 3. Point agents at it in .env.local
+AGENT_PARTNER_PROVIDER=sglang
+AGENT_PARTNER_MODEL=Qwen/Qwen3-14B
+AGENT_OPPONENT1_PROVIDER=sglang
+AGENT_OPPONENT1_MODEL=Qwen/Qwen3-14B
+AGENT_OPPONENT2_PROVIDER=sglang
+AGENT_OPPONENT2_MODEL=Qwen/Qwen3-14B
+```
+
+The serve script defaults to FP8 quantization with configurable GPU memory (`GPU_MEM`) and quantization (`QUANT`) env vars. Optional vLLM install: `uv sync --group vllm`.
 
 ### Agents (provider, model, and temperature per seat)
 
@@ -117,7 +147,9 @@ Twenty-eight is a 4-player trick-taking card game played with 32 cards (J, 9, A,
 - **Trump:** The bidder places a trump-suit card face-down. Trump is a **suit** — any card of that suit beats all other suits once revealed.
 - **Phase 1:** Trump is face-down. Trump cards have no special power. The bidder cannot lead trump until it's revealed.
 - **Phase 2:** After trump is called, any trump card beats all non-trump; must follow suit if possible.
-- **Rebid:** After all 8 cards are dealt, the bidder or partner may raise to at least **23**.
+- **Locked trump:** In Phase 1, the bidder cannot play trump cards from hand when void — only discard non-trump or reveal the trump.
+- **Calling trump:** Whoever calls trump must then play a trump card if they hold one.
+- **Rebid:** After all 8 cards are dealt, the bidder or partner may raise to at least **23**. If the bid is raised, the bidder may **change the trump card**.
 - **Pair Rule:** Holding both K and Q of trump adjusts the bid by ±4 (bidder −4, defender +4).
 - **Match win:** First team to +6 game points wins; −6 loses.
 
@@ -138,10 +170,13 @@ The bidding team's game points change by the bracket value; the defending team's
 - **Rebid:** After the 8-card deal, click 23+ to raise or PASS.
 - **Playing:** Click a card in your hand to select it, then click **Play Card**.
 - **Trump Selection:** After winning the bid, click a card from your hand.
+- **Change Trump:** After raising the rebid, click **Keep Trump** or **Change Trump**.
 - **Call Trump:** Available when you can't follow suit in Phase 1.
 - **Show Pair:** Available when holding K+Q of the trump suit.
 - **Peek Trump:** Click the face-down trump badge to peek at your own trump card.
 - **Points toggle:** Click the "Points" pill below the header to show/hide running card points per team.
+- **Concede:** End the match early (configurable via `ALLOW_CONCEDE`).
+- **Stop round:** When the outcome is mathematically decided, skip the remaining tricks (configurable via `ALLOW_EARLY_RESOLVE`).
 
 ### AI Agents
 
@@ -193,6 +228,8 @@ src/
 | `npm run start` | Start production server |
 | `npm test` | Run engine tests (vitest) |
 | `npm run test:watch` | Watch mode tests |
+| `uv sync --python 3.10` | Create `.venv/` + install the SGLang serving stack |
+| `./scripts/serve-sglang.sh [model] [port]` | Serve a model locally with SGLang |
 
 ## Notes
 
@@ -200,3 +237,5 @@ src/
 - Agent turns execute sequentially — allow a few seconds per AI decision.
 - For Anthropic Claude models, use OpenRouter (`anthropic/claude-3-haiku` etc.) — direct Anthropic API is not supported.
 - The game seat layout: you (South), Raman (North, partner), Krishnan (East, opponent), Kunjappu (West, opponent).
+- AI opponents use card-counting memory (played cards, points won, remaining cards) scoped to the current round only.
+- The reference rules were cross-checked against the Feathersoft "28" game and [pagat.com](https://www.pagat.com/jass/28.html).

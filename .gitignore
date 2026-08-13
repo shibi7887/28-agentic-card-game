@@ -8,3 +8,8 @@ out/
 next-env.d.ts
 .slim/deepwork/
 28_game_docs/
+
+# Python (uv) serving stack
+.venv/
+__pycache__/
+*.pyc

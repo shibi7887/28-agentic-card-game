@@ -90,6 +90,15 @@ export default function GameTable({
     const newCount = view.tricks.length;
     const trickCompleted = newCount > prevTrickCount.current;
 
+    // New round started (tricks reset to empty) — clear any lingering cards.
+    if (newCount === 0 && prevTrickCount.current > 0) {
+      setDisplayCards(EMPTY_TRICK);
+      setWinningPlayer(null);
+      prevTrickCount.current = 0;
+      prevCurTrick.current = [null, null, null, null];
+      return;
+    }
+
     // Don't clear cards when game is in scoring/finished — keep last trick visible
     if (view.phase === 'scoring' || view.phase === 'finished') {
       if (newCount === 8 && displayCards.some(c => c !== null)) {
@@ -114,7 +123,8 @@ export default function GameTable({
       setWinningPlayer(view.tricks[newCount - 1].winner);
 
       const isLastTrick = newCount === 8;
-      const holdTime = isLastTrick ? 4000 : 3000;
+      // Hold completed trick cards longer so the player can count cards.
+      const holdTime = isLastTrick ? 5000 : 5000;
 
       const t = setTimeout(() => {
         if (!isLastTrick) {

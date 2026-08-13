@@ -34,6 +34,7 @@ export function createGame(dealer: PlayerIndex = 0): GameState {
     trumpRevealed: false,
     changingTrump: false,
     preRebidBid: null,
+    mustPlayTrump: false,
     bid: null,
     bidHistory: [],
     rebidPlayers: [],
@@ -255,6 +256,22 @@ function getSecondPhaseMoves(state: GameState): LegalMove[] {
   const leadSuit = state.currentTrick.leadSuit;
   const moves: LegalMove[] = [];
   const trumpSuit = state.trumpSuit;
+
+  // The trump caller must play a trump card if they hold one.
+  if (state.mustPlayTrump && trumpSuit) {
+    const myTrumps = getCardsOfSuit(hand, trumpSuit);
+    if (myTrumps.length > 0) {
+      for (const card of myTrumps) {
+        moves.push({ type: 'playCard', card });
+      }
+      return moves;
+    }
+    // No trump held — may play any card.
+    for (const card of hand) {
+      moves.push({ type: 'playCard', card });
+    }
+    return moves;
+  }
 
   if (leadSuit === null) {
     for (const card of hand) {
@@ -534,6 +551,8 @@ function handleCallTrump(state: GameState): GameState {
   s.phase = 'secondPhase';
   // Keep hiddenTrumpCard — it's now visible to all as the revealed trump card
   // (it's still in the bidder's hand and playable)
+  // The caller must now play a trump card if they hold one.
+  s.mustPlayTrump = true;
   return s;
 }
 
@@ -598,6 +617,9 @@ function handlePlayCard(state: GameState, card: Card): GameState {
 
   // Remove from hand
   s.hands[player] = [...hand.slice(0, cardIndex), ...hand.slice(cardIndex + 1)];
+
+  // Clear the "must play trump" obligation once the caller plays
+  s.mustPlayTrump = false;
 
   // Clear hidden trump reference if it was played
   if (cardEquals(card, s.hiddenTrumpCard)) {

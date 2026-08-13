@@ -23,6 +23,16 @@ export function getProviderConfig(provider: string): ProviderConfig {
         baseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434/v1',
         apiKey: process.env.OLLAMA_API_KEY || 'ollama', // Ollama needs no key; dummy value
       };
+    case 'sglang':
+      return {
+        baseURL: process.env.SGLANG_BASE_URL || 'http://localhost:30000/v1',
+        apiKey: process.env.SGLANG_API_KEY || 'EMPTY', // SGLang needs no key; dummy value
+      };
+    case 'vllm':
+      return {
+        baseURL: process.env.VLLM_BASE_URL || 'http://localhost:8000/v1',
+        apiKey: process.env.VLLM_API_KEY || 'EMPTY', // vLLM needs no key by default
+      };
     case 'openrouter':
       return {
         baseURL: 'https://openrouter.ai/api/v1',
