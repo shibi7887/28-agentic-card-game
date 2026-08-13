@@ -30,6 +30,7 @@ export function createGame(dealer: PlayerIndex = 0): GameState {
     currentTrick: { cards: [null, null, null, null], leadSuit: null },
     trumpSuit: null,
     hiddenTrumpCard: null,
+    trumpCard: null,
     trumpRevealed: false,
     bid: null,
     bidHistory: [],
@@ -435,6 +436,7 @@ function handleSelectTrump(state: GameState, card: Card): GameState {
 
   s.trumpSuit = card.suit;
   s.hiddenTrumpCard = card; // Mark as hidden — stays in hand
+  s.trumpCard = card;       // Persistent — the trump card itself, never cleared
 
   return completeDealAndStartPlay(s);
 }
@@ -706,6 +708,8 @@ export function getPlayerView(state: GameState, playerIndex: PlayerIndex): Playe
     hiddenTrumpCard: (state.trumpRevealed || state.currentPlayer === playerIndex || state.bid?.bidder === playerIndex)
       ? state.hiddenTrumpCard
       : null,
+    // Trump card itself — visible to everyone after reveal, persists after played
+    trumpCard: state.trumpRevealed ? state.trumpCard : null,
     roundComplete: state.roundComplete,
     roundResult: state.roundResult,
     winner: state.winner,

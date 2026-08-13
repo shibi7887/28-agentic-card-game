@@ -19,6 +19,8 @@ interface PlayerSeatProps {
   isWinner: boolean;
   isBidder: boolean;
   trumpRevealed: boolean;
+  trumpSuit: import("@/engine/types").Suit | null;
+  trumpCard: import("@/engine/types").Card | null;
   hiddenTrumpCard: import("@/engine/types").Card | null;
   tricksWon: number;
   legalCards: Card[];
@@ -65,6 +67,8 @@ export default function PlayerSeat({
   isWinner,
   isBidder,
   trumpRevealed,
+  trumpSuit,
+  trumpCard,
   hiddenTrumpCard,
   tricksWon,
   legalCards,
@@ -186,18 +190,23 @@ export default function PlayerSeat({
           <CardBack size="24px" />
         </motion.span>
       )}
-      {isBidder && trumpRevealed && hiddenTrumpCard && (
+      {isBidder && trumpRevealed && trumpSuit && (
         <motion.span
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="ml-0.5 flex h-10 items-center rounded-lg px-1.5 gap-1"
+          className="ml-0.5 flex h-10 items-center rounded-lg px-2 gap-1.5"
           style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.8)", background: "rgba(224,160,64,0.15)" }}
-          title="Trump card revealed"
+          title="Trump card"
         >
-          <span className="font-card text-base font-bold" style={{ color: hiddenTrumpCard.suit === "hearts" || hiddenTrumpCard.suit === "diamonds" ? "#b3261e" : "#201510" }}>
-            {hiddenTrumpCard.rank}
+          <span className="font-ui text-[0.55rem] font-semibold uppercase tracking-[0.12em] text-[var(--gold)]">
+            Trump
           </span>
-          <span className="text-sm text-[var(--gold-bright)]">♚</span>
+          <span
+            className="font-card text-xl leading-none"
+            style={{ color: trumpSuit === "hearts" || trumpSuit === "diamonds" ? "#ff9d8a" : "#ffe9c9" }}
+          >
+            {trumpCard ? `${trumpCard.rank}${trumpSuit === "hearts" ? "♥" : trumpSuit === "diamonds" ? "♦" : trumpSuit === "clubs" ? "♣" : "♠"}` : (trumpSuit === "hearts" ? "♥" : trumpSuit === "diamonds" ? "♦" : trumpSuit === "clubs" ? "♣" : "♠")}
+          </span>
         </motion.span>
       )}
       {isThinking && (

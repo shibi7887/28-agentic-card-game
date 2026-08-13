@@ -24,7 +24,8 @@ export const DEFAULT_AGENT_PROFILES: Record<string, AgentProfile> = {
     id: 'partner',
     name: 'Raman',
     persona: 'loyal_partner',
-    strategyStyle: 'Supportive — plays to help partner win tricks. Conservative bidding, cooperative play.',
+    strategyStyle: process.env.AGENT_PARTNER_STRATEGY ||
+      'Supportive — plays to help partner win tricks. Conservative bidding, cooperative play.',
     provider: process.env.AGENT_PARTNER_PROVIDER || 'deepseek',
     model: process.env.AGENT_PARTNER_MODEL || 'deepseek-chat',
     temperature: temp(process.env.AGENT_PARTNER_TEMPERATURE, 0.3),
@@ -33,19 +34,21 @@ export const DEFAULT_AGENT_PROFILES: Record<string, AgentProfile> = {
     id: 'opponent1',
     name: 'Krishnan',
     persona: 'aggressive_opponent',
-    strategyStyle: 'Aggressive — bids high, plays trump aggressively, takes risks to defeat the bidder.',
+    strategyStyle: process.env.AGENT_OPPONENT1_STRATEGY ||
+      'Balanced — bid only when your hand genuinely supports the contract; value safe trick-taking over risky overbids.',
     provider: process.env.AGENT_OPPONENT1_PROVIDER || 'deepseek',
     model: process.env.AGENT_OPPONENT1_MODEL || 'deepseek-chat',
-    temperature: temp(process.env.AGENT_OPPONENT1_TEMPERATURE, 0.5),
+    temperature: temp(process.env.AGENT_OPPONENT1_TEMPERATURE, 0.4),
   },
   opponent2: {
     id: 'opponent2',
     name: 'Kunjappu',
     persona: 'unpredictable_opponent',
-    strategyStyle: 'Unpredictable — mixes conservative and aggressive play. Hard to read, sometimes bluffs.',
+    strategyStyle: process.env.AGENT_OPPONENT2_STRATEGY ||
+      'Balanced — mix conservative and aggressive play, but avoid reckless overbids that lose the round.',
     provider: process.env.AGENT_OPPONENT2_PROVIDER || 'deepseek',
     model: process.env.AGENT_OPPONENT2_MODEL || 'deepseek-chat',
-    temperature: temp(process.env.AGENT_OPPONENT2_TEMPERATURE, 0.7),
+    temperature: temp(process.env.AGENT_OPPONENT2_TEMPERATURE, 0.5),
   },
 };
 

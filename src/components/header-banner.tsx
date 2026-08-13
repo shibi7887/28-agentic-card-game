@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SUIT_SYMBOL } from "./card";
 import { TEAM_NAMES } from "./table-config";
-import type { Phase, Suit, PlayerIndex, TeamIndex } from "@/engine/types";
+import type { Phase, Suit, PlayerIndex, TeamIndex, Card } from "@/engine/types";
 
 interface HeaderBannerProps {
   scores: { team0: number; team1: number };
@@ -13,6 +13,7 @@ interface HeaderBannerProps {
   phaseLabel: string;
   trumpSuit: Suit | null;
   trumpRevealed: boolean;
+  trumpCard: Card | null;
   bid: { amount: number; bidder: PlayerIndex } | null;
   trickNumber: number;
   winner: TeamIndex | null;
@@ -27,6 +28,7 @@ export default function HeaderBanner({
   phaseLabel,
   trumpSuit,
   trumpRevealed,
+  trumpCard,
   bid,
   trickNumber,
   winner,
@@ -113,15 +115,22 @@ export default function HeaderBanner({
               </span>
               {trumpRevealed && trumpSuit && (
                 <span
-                  className="flex h-5 w-5 items-center justify-center rounded-full font-card text-[0.7rem]"
+                  className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
                   style={{
                     background: "radial-gradient(circle at 35% 30%, #3a1d05, var(--header) 70%)",
-                    boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.85)",
-                    color: trumpSuit === "hearts" || trumpSuit === "diamonds" ? "#ff9d8a" : "#ffe9c9",
+                    boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.85), 0 0 14px rgba(224,160,64,0.35)",
                   }}
                   title="Trump"
                 >
-                  {SUIT_SYMBOL[trumpSuit]}
+                  <span className="font-ui text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-[var(--gold)]">
+                    Trump
+                  </span>
+                  <span
+                    className="font-card text-xl leading-none"
+                    style={{ color: trumpSuit === "hearts" || trumpSuit === "diamonds" ? "#ff9d8a" : "#ffe9c9" }}
+                  >
+                    {trumpCard ? `${trumpCard.rank}${SUIT_SYMBOL[trumpCard.suit]}` : SUIT_SYMBOL[trumpSuit]}
+                  </span>
                 </span>
               )}
               {inPlay && !trumpRevealed && (

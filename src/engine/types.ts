@@ -38,6 +38,7 @@ export interface GameState {
   currentTrick: { cards: (TrickCard | null)[]; leadSuit: Suit | null };
   trumpSuit: Suit | null;
   hiddenTrumpCard: Card | null;                  // face-down trump — still IN bidder's hand
+  trumpCard: Card | null;                        // the trump card itself — persists even after played
   trumpRevealed: boolean;
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
@@ -82,6 +83,7 @@ export interface PlayerViewState {
   currentTrick: { cards: (TrickCard | null)[]; leadSuit: Suit | null };
   trumpSuit: Suit | null;
   trumpRevealed: boolean;
+  trumpCard: Card | null;                        // the trump card — persists even after played
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
   rebidPlayers: PlayerIndex[];

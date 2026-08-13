@@ -235,6 +235,7 @@ export default function GameTable({
         phaseLabel={phaseLabel(view.phase)}
         trumpSuit={view.trumpSuit}
         trumpRevealed={view.trumpRevealed}
+        trumpCard={view.trumpCard}
         bid={view.bid}
         trickNumber={view.trickNumber}
         winner={view.winner}
@@ -285,6 +286,8 @@ export default function GameTable({
             isBidder={view.bid?.bidder === 2}
             trumpRevealed={view.trumpRevealed}
             hiddenTrumpCard={view.hiddenTrumpCard}
+            trumpSuit={view.trumpSuit}
+            trumpCard={view.trumpCard}
             isWinner={winningPlayer === 2}
             tricksWon={tricksWonBy[2]}
             legalCards={[]}
@@ -309,6 +312,8 @@ export default function GameTable({
               isDealer={view.dealer === 3}
               isBidder={view.bid?.bidder === 3}
               trumpRevealed={view.trumpRevealed}
+              trumpSuit={view.trumpSuit}
+              trumpCard={view.trumpCard}
               hiddenTrumpCard={view.hiddenTrumpCard}
               isWinner={winningPlayer === 3}
               tricksWon={tricksWonBy[3]}
@@ -349,6 +354,8 @@ export default function GameTable({
               isDealer={view.dealer === 1}
               isBidder={view.bid?.bidder === 1}
               trumpRevealed={view.trumpRevealed}
+              trumpSuit={view.trumpSuit}
+              trumpCard={view.trumpCard}
               hiddenTrumpCard={view.hiddenTrumpCard}
               isWinner={winningPlayer === 1}
               tricksWon={tricksWonBy[1]}
@@ -375,6 +382,8 @@ export default function GameTable({
             isBidder={view.bid?.bidder === 0}
             trumpRevealed={view.trumpRevealed}
             hiddenTrumpCard={view.hiddenTrumpCard}
+            trumpSuit={view.trumpSuit}
+            trumpCard={view.trumpCard}
             isWinner={winningPlayer === 0}
             tricksWon={tricksWonBy[0]}
             legalCards={legalCards}
