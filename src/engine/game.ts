@@ -32,6 +32,8 @@ export function createGame(dealer: PlayerIndex = 0): GameState {
     hiddenTrumpCard: null,
     trumpCard: null,
     trumpRevealed: false,
+    changingTrump: false,
+    preRebidBid: null,
     bid: null,
     bidHistory: [],
     rebidPlayers: [],
@@ -185,7 +187,12 @@ function getBiddingMoves(state: GameState): LegalMove[] {
 
 function getSelectingTrumpMoves(state: GameState): LegalMove[] {
   const hand = state.hands[state.currentPlayer];
-  return hand.map(card => ({ type: 'selectTrump' as const, card }));
+  const moves: LegalMove[] = hand.map(card => ({ type: 'selectTrump' as const, card }));
+  // When changing trump after a rebid raise, the bidder may also keep the current trump.
+  if (state.changingTrump) {
+    moves.push({ type: 'keepTrump' as const });
+  }
+  return moves;
 }
 
 function getFirstPhaseMoves(state: GameState): LegalMove[] {
@@ -222,9 +229,16 @@ function getFirstPhaseMoves(state: GameState): LegalMove[] {
         moves.push({ type: 'playCard', card });
       }
     } else {
-      // Cannot follow suit — can discard or call trump
+      // Cannot follow suit — can discard or call trump.
+      // The bidder's "locked trump" rule: in Phase 1, when void in a NON-trump
+      // led suit, the bidder may NOT play trump cards from hand. They may only
+      // discard a non-trump card or reveal the trump card (callTrump).
+      const bidderLockedTrump =
+        isBidder && !state.trumpRevealed && state.trumpSuit !== null && leadSuit !== state.trumpSuit;
+
       for (const card of hand) {
         if (cardEquals(card, state.hiddenTrumpCard)) continue;
+        if (bidderLockedTrump && card.suit === state.trumpSuit) continue;
         moves.push({ type: 'playCard', card });
       }
       if (!state.trumpRevealed) {
@@ -348,6 +362,7 @@ export function applyMove(state: GameState, move: LegalMove): GameState {
     case 'bid': return handleBid(state, move.amount);
     case 'pass': return handlePass(state);
     case 'selectTrump': return handleSelectTrump(state, move.card);
+    case 'keepTrump': return handleKeepTrump(state);
     case 'playCard': return handlePlayCard(state, move.card);
     case 'callTrump': return handleCallTrump(state);
     case 'showPair': return handleShowPair(state);
@@ -438,7 +453,25 @@ function handleSelectTrump(state: GameState, card: Card): GameState {
   s.hiddenTrumpCard = card; // Mark as hidden — stays in hand
   s.trumpCard = card;       // Persistent — the trump card itself, never cleared
 
+  // If changing trump after a rebid raise, go straight to first phase.
+  if (s.changingTrump) {
+    s.changingTrump = false;
+    s.phase = 'firstPhase';
+    s.currentPlayer = getNextPlayer(s.dealer);
+    s.trickNumber = 1;
+    return s;
+  }
+
   return completeDealAndStartPlay(s);
+}
+
+function handleKeepTrump(state: GameState): GameState {
+  const s = cloneState(state);
+  s.changingTrump = false;
+  s.phase = 'firstPhase';
+  s.currentPlayer = getNextPlayer(s.dealer);
+  s.trickNumber = 1;
+  return s;
 }
 
 function completeDealAndStartPlay(state: GameState): GameState {
@@ -468,6 +501,7 @@ function completeDealAndStartPlay(state: GameState): GameState {
   // Rebid phase: bidder and partner may raise to 24+
   const bidder = s.bid!.bidder;
   const partner = (bidder + 2) % 4 as PlayerIndex;
+  s.preRebidBid = s.bid!.amount;
   s.rebidPlayers = [bidder, partner];
   s.currentPlayer = bidder;
 
@@ -476,8 +510,18 @@ function completeDealAndStartPlay(state: GameState): GameState {
 
 function finishRebid(state: GameState): GameState {
   const s = cloneState(state);
-  s.phase = 'firstPhase';
   s.rebidPlayers = [];
+
+  // If the bid was raised during rebid, the bidder may change the trump card.
+  if (s.preRebidBid !== null && s.bid!.amount > s.preRebidBid) {
+    s.changingTrump = true;
+    s.phase = 'selectingTrump';
+    s.currentPlayer = s.bid!.bidder;
+    return s;
+  }
+
+  s.changingTrump = false;
+  s.phase = 'firstPhase';
   // Player to dealer's right leads the first trick
   s.currentPlayer = getNextPlayer(s.dealer);
   s.trickNumber = 1;
@@ -676,6 +720,70 @@ export function computeRoundResult(state: GameState): GameState {
   return s;
 }
 
+// ─── Early Resolution ──────────────────────────────────────────────
+
+export interface RoundDecidedInfo {
+  decided: boolean;
+  winner: TeamIndex | null;   // team that is guaranteed to win the round
+  reason: string;
+}
+
+/**
+ * Determine whether the current round is already mathematically decided.
+ * The bidding team needs at least `bid.amount` card points. Once the
+ * defending team has captured enough points that the bidding team can no
+ * longer reach their bid — or the bidding team has already met it — the
+ * remaining tricks cannot change the outcome.
+ */
+export function getRoundDecided(state: GameState): RoundDecidedInfo {
+  const bid = state.bid;
+  if (!bid) return { decided: false, winner: null, reason: '' };
+  if (state.phase !== 'firstPhase' && state.phase !== 'secondPhase') {
+    return { decided: false, winner: null, reason: '' };
+  }
+
+  const bidderTeam = getTeam(bid.bidder);
+
+  // Points won per team from completed tricks
+  let team0Points = 0;
+  let team1Points = 0;
+  for (const trick of state.tricks) {
+    const winnerTeam = getTeam(trick.winner);
+    if (winnerTeam === 0) team0Points += trick.points;
+    else team1Points += trick.points;
+  }
+
+  const biddingTeamPoints = bidderTeam === 0 ? team0Points : team1Points;
+  const defendingTeamPoints = bidderTeam === 0 ? team1Points : team0Points;
+
+  // Bidding team already met their bid → they win, decided.
+  if (biddingTeamPoints >= bid.amount) {
+    return {
+      decided: true,
+      winner: bidderTeam,
+      reason: `Bidding team already has ${biddingTeamPoints} pts (bid ${bid.amount}) — they cannot lose.`,
+    };
+  }
+
+  // Remaining points in play = 28 - (already won). Bidding team's max
+  // achievable = biddingTeamPoints + remaining = 28 - defendingTeamPoints.
+  const maxBiddingTeamCanReach = 28 - defendingTeamPoints;
+  if (maxBiddingTeamCanReach < bid.amount) {
+    return {
+      decided: true,
+      winner: bidderTeam === 0 ? 1 : 0,
+      reason: `Bidding team can reach at most ${maxBiddingTeamCanReach} pts, but needs ${bid.amount} — they cannot win.`,
+    };
+  }
+
+  return { decided: false, winner: null, reason: '' };
+}
+
+/** Resolve the round immediately — the remaining tricks are moot. */
+export function resolveRoundEarly(state: GameState): GameState {
+  return computeRoundResult(state);
+}
+
 // ─── Player View ───────────────────────────────────────────────────
 
 export function getPlayerView(state: GameState, playerIndex: PlayerIndex): PlayerViewState {
@@ -720,7 +828,9 @@ export function getPlayerView(state: GameState, playerIndex: PlayerIndex): Playe
       : null,
     // Trump card itself — visible to everyone after reveal, persists after played
     trumpCard: state.trumpRevealed ? state.trumpCard : null,
+    changingTrump: state.changingTrump,
     allowConcede: false, // overridden by the store based on env config
+    roundDecided: getRoundDecided(state),
     roundComplete: state.roundComplete,
     roundResult: state.roundResult,
     winner: state.winner,

@@ -9,4 +9,6 @@ export {
   getPlayerView,
   computeRoundResult,
   concedeGame,
+  getRoundDecided,
+  resolveRoundEarly,
 } from './game';

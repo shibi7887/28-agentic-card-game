@@ -2,12 +2,14 @@
 // In production, replace with Redis or database
 
 import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
-import { createGame, applyMove, getPlayerView, concedeGame } from '@/engine/game';
+import { createGame, applyMove, getPlayerView, concedeGame, resolveRoundEarly, getRoundDecided } from '@/engine/game';
 import { getAgentProfile } from '@/agents/profiles';
 import { getAgentDecision } from '@/agents/pipeline';
 
 // Early-concede is enabled by default; set ALLOW_CONCEDE=false to disable.
 const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
+// Early round resolution is enabled by default; set ALLOW_EARLY_RESOLVE=false to disable.
+const ALLOW_EARLY_RESOLVE = process.env.ALLOW_EARLY_RESOLVE !== 'false';
 
 interface StoredGame {
   state: GameState;
@@ -92,6 +94,30 @@ export function processConcede(
   if (game.state.phase === 'finished') return { error: 'Game already finished' };
 
   game.state = concedeGame(game.state, player);
+  const view = getPlayerView(game.state, game.humanPlayer);
+  view.allowConcede = ALLOW_CONCEDE;
+  return { view };
+}
+
+/** Resolve the round early when the outcome is mathematically decided. */
+export function processResolveRound(
+  gameId: string,
+): { view: PlayerViewState } | { error: string } {
+  const game = gameStore.get(gameId);
+  if (!game) return { error: 'Game not found' };
+  if (!ALLOW_EARLY_RESOLVE) return { error: 'Early resolution is disabled' };
+
+  // Idempotent: if already resolved/scoring/finished, return current view.
+  if (game.state.phase === 'scoring' || game.state.phase === 'finished') {
+    const view = getPlayerView(game.state, game.humanPlayer);
+    view.allowConcede = ALLOW_CONCEDE;
+    return { view };
+  }
+
+  const info = getRoundDecided(game.state);
+  if (!info.decided) return { error: 'Round is not decided yet' };
+
+  game.state = resolveRoundEarly(game.state);
   const view = getPlayerView(game.state, game.humanPlayer);
   view.allowConcede = ALLOW_CONCEDE;
   return { view };

@@ -122,6 +122,12 @@ function smartFallback(
     return { move: passMove, reasoning: 'Fallback: pass' };
   }
 
+  // Trump selection: prefer keeping the current trump if changing is optional.
+  if (legalMoves.some(m => m.type === 'keepTrump')) {
+    console.warn(`Agent ${name} using fallback keepTrump`);
+    return { move: { type: 'keepTrump' } as LegalMove, reasoning: 'Fallback: keep trump' };
+  }
+
   // For play: discard the LOWEST-VALUE card, never waste points.
   const playMoves = legalMoves.filter(
     m => m.type === 'playCard' || m.type === 'selectTrump'
@@ -179,6 +185,10 @@ function parseDecision(decision: AgentDecision, legalMoves: LegalMove[]): LegalM
 
   if (action === 'showPair') {
     return legalMoves.find(m => m.type === 'showPair') || null;
+  }
+
+  if (action === 'keepTrump') {
+    return legalMoves.find(m => m.type === 'keepTrump') || null;
   }
 
   if ((action === 'playCard' || action === 'selectTrump') && cardSuit && cardRank) {

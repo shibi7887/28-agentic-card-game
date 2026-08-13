@@ -40,6 +40,8 @@ export interface GameState {
   hiddenTrumpCard: Card | null;                  // face-down trump — still IN bidder's hand
   trumpCard: Card | null;                        // the trump card itself — persists even after played
   trumpRevealed: boolean;
+  changingTrump: boolean;                        // bidder may change trump after raising rebid
+  preRebidBid: number | null;                    // bid amount before the rebid phase
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
   rebidPlayers: PlayerIndex[];                   // players who may still rebid (24+ after 8-card deal)
@@ -64,12 +66,12 @@ export type LegalMove =
   | { type: 'bid'; amount: number }
   | { type: 'pass' }
   | { type: 'selectTrump'; card: Card }
+  | { type: 'keepTrump' }
   | { type: 'playCard'; card: Card }
   | { type: 'callTrump' }
   | { type: 'showPair' }
   | { type: 'nextRound' }
   | { type: 'redeal' };
-
 export interface PlayerViewState {
   phase: Phase;
   playerIndex: PlayerIndex;
@@ -84,6 +86,7 @@ export interface PlayerViewState {
   trumpSuit: Suit | null;
   trumpRevealed: boolean;
   trumpCard: Card | null;                        // the trump card — persists even after played
+  changingTrump: boolean;                        // bidder may change trump after raising rebid
   bid: { amount: number; bidder: PlayerIndex } | null;
   bidHistory: BidRecord[];
   rebidPlayers: PlayerIndex[];
@@ -93,6 +96,7 @@ export interface PlayerViewState {
   trickNumber: number;
   hiddenTrumpCard: Card | null;                  // visible only to the bidder
   allowConcede: boolean;                         // whether early-concede is enabled
+  roundDecided: { decided: boolean; winner: TeamIndex | null; reason: string } | null;
   roundComplete: boolean;
   roundResult: GameState['roundResult'];
   winner: TeamIndex | null;

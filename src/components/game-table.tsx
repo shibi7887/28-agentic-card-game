@@ -25,6 +25,7 @@ interface GameTableProps {
   batchId: number;
   onMove: (move: LegalMove) => void;
   onConcede: () => void;
+  onResolve: () => void;
   onExit: () => void;
 }
 
@@ -51,6 +52,7 @@ export default function GameTable({
   batchId,
   onMove,
   onConcede,
+  onResolve,
   onExit,
 }: GameTableProps) {
   const isHumanTurn = view.currentPlayer === view.playerIndex;
@@ -64,6 +66,12 @@ export default function GameTable({
   const [peekingTrump, setPeekingTrump] = useState(false);
   const [showPoints, setShowPoints] = useState(true);
   const [showResult, setShowResult] = useState(false);
+  const [dismissDecided, setDismissDecided] = useState(false);
+
+  // Reset dismiss when a new round starts (tricks reset to empty)
+  useEffect(() => {
+    if (view.tricks.length === 0) setDismissDecided(false);
+  }, [view.tricks.length]);
 
   // Delay the round-result overlay so the last trick stays visible
   useEffect(() => {
@@ -446,6 +454,39 @@ export default function GameTable({
             </button>
           )}
 
+          {/* Round already decided — stop or continue */}
+          {view.roundDecided?.decided && !dismissDecided && view.phase !== "finished" && view.phase !== "scoring" && !loading && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center gap-2 rounded-xl px-4 py-3"
+              style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.5)", background: "rgba(224,160,64,0.08)" }}
+            >
+              <p className="text-center font-ui text-[0.72rem] text-[var(--gold)]">
+                Round decided — {view.roundDecided.winner === view.teamIndex ? "your team" : "opponents"} will win.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onResolve}
+                  disabled={loading}
+                  className="rounded-lg px-4 py-1.5 font-display text-[0.7rem] font-bold uppercase tracking-[0.16em] text-[var(--frame)] disabled:opacity-50"
+                  style={{ background: "linear-gradient(180deg, var(--btn-gradient-to), var(--btn-gradient-from))" }}
+                >
+                  Stop round
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissDecided(true)}
+                  className="rounded-lg px-4 py-1.5 font-ui text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[var(--cream)]/80"
+                  style={{ boxShadow: "inset 0 0 0 1px rgba(224,160,64,0.5)" }}
+                >
+                  Continue
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {/* Bid grid — bidding (14+) and rebidding (24+) */}
           {(view.phase === "bidding" || view.phase === "rebidding") && isHumanTurn && !loading && (
             <BidPanel
@@ -456,30 +497,48 @@ export default function GameTable({
             />
           )}
 
-          {/* Trump confirmation */}
+          {/* Trump selection / confirmation */}
           {view.phase === "selectingTrump" && isHumanTurn && !loading && (
             <div className="flex flex-col items-center gap-2">
               <p className="font-ui text-xs text-[var(--cream)]/70">
-                {selectedCard
-                  ? `Trump will be ${selectedCard.rank}${selectedCard.suit === "hearts" ? "♥" : selectedCard.suit === "diamonds" ? "♦" : selectedCard.suit === "clubs" ? "♣" : "♠"} — it stays hidden in your hand until called`
-                  : "Tap a card to set the trump suit"}
+                {view.changingTrump
+                  ? "Bid raised — you may change the trump suit, or keep the current one"
+                  : selectedCard
+                    ? `Trump will be ${selectedCard.rank}${selectedCard.suit === "hearts" ? "♥" : selectedCard.suit === "diamonds" ? "♦" : selectedCard.suit === "clubs" ? "♣" : "♠"} — it stays hidden in your hand until called`
+                    : "Tap a card to set the trump suit"}
               </p>
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.95 }}
-                onClick={confirmSelection}
-                disabled={!selectedCard}
-                className={`h-11 rounded-xl px-10 font-display text-sm font-bold uppercase tracking-[0.24em] transition-opacity ${
-                  selectedCard ? "" : "opacity-40"
-                }`}
-                style={{
-                  background: "linear-gradient(180deg, var(--btn-gradient-to), var(--btn-gradient-from))",
-                  boxShadow: "0 3px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
-                  color: "var(--frame)",
-                }}
-              >
-                Confirm Trump
-              </motion.button>
+              <div className="flex gap-2">
+                {view.changingTrump && (
+                  <button
+                    type="button"
+                    onClick={() => onMove({ type: "keepTrump" })}
+                    className="h-11 rounded-xl px-6 font-display text-sm font-bold uppercase tracking-[0.2em]"
+                    style={{
+                      background: "linear-gradient(180deg, #ffb45e, #d97b12)",
+                      boxShadow: "0 3px 10px rgba(0,0,0,0.45)",
+                      color: "var(--frame)",
+                    }}
+                  >
+                    Keep Trump
+                  </button>
+                )}
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                  onClick={confirmSelection}
+                  disabled={!selectedCard}
+                  className={`h-11 rounded-xl px-10 font-display text-sm font-bold uppercase tracking-[0.24em] transition-opacity ${
+                    selectedCard ? "" : "opacity-40"
+                  }`}
+                  style={{
+                    background: "linear-gradient(180deg, var(--btn-gradient-to), var(--btn-gradient-from))",
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.35)",
+                    color: "var(--frame)",
+                  }}
+                >
+                  {view.changingTrump ? "Change Trump" : "Confirm Trump"}
+                </motion.button>
+              </div>
             </div>
           )}
 

@@ -230,6 +230,23 @@ export default function GamePage() {
     }
   };
 
+  const resolveRound = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/game/${gameId}/resolve`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setView(data.view);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <GameTable
       view={view}
@@ -239,6 +256,7 @@ export default function GamePage() {
       batchId={batchId}
       onMove={submitMove}
       onConcede={concede}
+      onResolve={resolveRound}
       onExit={() => router.push("/")}
     />
   );

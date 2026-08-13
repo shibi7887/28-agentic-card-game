@@ -303,24 +303,29 @@ export function buildTrumpSelectionPrompt(
   profile: AgentProfile,
   state: PlayerViewState,
 ): { system: string; user: string } {
+  const changing = state.changingTrump;
+
   const system = `${buildGameRulesContext()}
 
 You are ${profile.name}, with playing style: ${profile.strategyStyle}
 
-TRUMP SELECTION: You won the bidding. Choose which suit will be trump and which specific card you'll place face-down.
-Pick a suit where you have strong cards (J, 9, A, 10) and ideally length (many cards of that suit).`;
+${changing
+  ? `TRUMP CHANGE: You raised the bid and may now change the trump suit. You can either keep the current trump (${state.trumpSuit}) or select a new trump card from your 8-card hand. Change it only if another suit is clearly stronger.`
+  : `TRUMP SELECTION: You won the bidding. Choose which suit will be trump and which specific card you'll place face-down.
+Pick a suit where you have strong cards (J, 9, A, 10) and ideally length (many cards of that suit).`}`;
 
   const user = `CURRENT GAME STATE:
-Your hand (4 cards): ${describeHand(state.hand)}
+Your hand: ${describeHand(state.hand)}
 Your bid: ${state.bid?.amount}
+${changing ? `Current trump suit: ${state.trumpSuit}` : ''}
 You are Player ${state.playerIndex} (Team ${state.teamIndex}).
 
 RESPOND with JSON:
 {
   "reasoning": "Brief explanation of your trump choice",
-  "action": "selectTrump",
-  "cardSuit": "hearts" | "diamonds" | "clubs" | "spades",
-  "cardRank": "J" | "9" | "A" | "10" | "K" | "Q" | "8" | "7"
+  "action": ${changing ? '"selectTrump" | "keepTrump"' : '"selectTrump"'},
+  "cardSuit": "hearts" | "diamonds" | "clubs" | "spades" (only for selectTrump),
+  "cardRank": "J" | "9" | "A" | "10" | "K" | "Q" | "8" | "7" (only for selectTrump)
 }`;
 
   return { system, user };
