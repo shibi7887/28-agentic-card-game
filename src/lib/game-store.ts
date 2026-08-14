@@ -3,6 +3,7 @@
 
 import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
 import { createGame, applyMove, getPlayerView, concedeGame, resolveRoundEarly, getRoundDecided } from '@/engine/game';
+import { bestPlayDecision } from '@/engine/search';
 import { getAgentProfile } from '@/agents/profiles';
 import { getAgentDecision } from '@/agents/pipeline';
 
@@ -10,6 +11,13 @@ import { getAgentDecision } from '@/agents/pipeline';
 const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
 // Early round resolution is enabled by default; set ALLOW_EARLY_RESOLVE=false to disable.
 const ALLOW_EARLY_RESOLVE = process.env.ALLOW_EARLY_RESOLVE !== 'false';
+// Monte-Carlo card-play search is enabled by default; set AGENT_USE_SEARCH=false
+// to route all decisions (including card play) through the LLM instead.
+const USE_SEARCH = process.env.AGENT_USE_SEARCH !== 'false';
+const SEARCH_SAMPLES = (() => {
+  const n = parseInt(process.env.SEARCH_SAMPLES || '', 10);
+  return Number.isNaN(n) || n <= 0 ? 150 : n;
+})();
 
 interface StoredGame {
   state: GameState;
@@ -199,8 +207,33 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
   game.locked = true;
   try {
     const profile = getAgentProfile(agentId);
-    const playerView = getPlayerView(game.state, player);
-    const { move, reasoning } = await getAgentDecision(profile, playerView);
+
+    // Monte-Carlo search for card play — faster, more reliable, and stronger
+    // than the LLM for the combinatorial core of the game. The LLM still
+    // handles bidding, trump selection, and the rebid (judgment calls).
+    let move;
+    let reasoning;
+    const phase = game.state.phase;
+
+    let searchResult: ReturnType<typeof bestPlayDecision> = null;
+    if (USE_SEARCH && (phase === 'firstPhase' || phase === 'secondPhase')) {
+      try {
+        searchResult = bestPlayDecision(game.state, player, { samples: SEARCH_SAMPLES });
+      } catch (e) {
+        // Never let a search crash stall the game — fall through to the LLM.
+        console.warn(`Agent ${profile.name} search failed, falling back to LLM:`, (e as Error).message);
+        searchResult = null;
+      }
+    }
+
+    if (searchResult) {
+      move = searchResult.move;
+      reasoning = searchResult.reasoning;
+    } else {
+      const playerView = getPlayerView(game.state, player);
+      ({ move, reasoning } = await getAgentDecision(profile, playerView));
+    }
+
     game.state = applyMove(game.state, move);
     game.locked = false;
 

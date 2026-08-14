@@ -73,6 +73,68 @@ export function evaluateOpeningHand(hand: Card[]): OpeningHandEvaluation {
   return { maxBid, points, score, note };
 }
 
+export interface RebidHandEvaluation {
+  maxRebid: number;  // highest sensible rebid (23–28); 22 means "pass — do not rebid"
+  points: number;    // raw point total of the 8-card hand
+  score: number;     // internal strength score
+  note: string;      // human-readable rationale
+}
+
+/**
+ * Evaluate the full 8-card hand for the REBID phase (raising to 23+).
+ *
+ * Unlike the opening bid (capped at 18), a rebid can reach 28. But a 24+
+ * bid is a "Thani / solo" contract — the bidding team must capture nearly
+ * every one of the 28 points. That demands strength concentrated in 1–2
+ * suits (a real trump suit), NOT points scattered across all four suits.
+ * A balanced hand has almost no chance of making 24.
+ *
+ * Score = raw points + bonuses for suit length (trump depth), J+9 trump
+ * pairs, and holding multiple jacks. Score → maxRebid:
+ *   <14 → 22 (pass), <16 → 23, <18 → 24, <20 → 26, else → 28
+ */
+export function evaluateRebidHand(hand: Card[]): RebidHandEvaluation {
+  const points = countPoints(hand);
+
+  const longestLen = ALL_SUITS.reduce(
+    (best, s) => Math.max(best, hand.filter((c) => c.suit === s).length),
+    0,
+  );
+  const lengthBonus = longestLen >= 5 ? 3 : longestLen === 4 ? 1 : 0;
+
+  const j9Pairs = ALL_SUITS.filter(
+    (s) => hand.some((c) => c.suit === s && c.rank === 'J') &&
+           hand.some((c) => c.suit === s && c.rank === '9'),
+  ).length;
+  const j9Bonus = 2 * j9Pairs;
+
+  const jackCount = hand.filter((c) => c.rank === 'J').length;
+  const jackBonus = jackCount >= 2 ? 1 : 0;
+
+  const score = points + lengthBonus + j9Bonus + jackBonus;
+
+  let maxRebid: number;
+  let note: string;
+  if (score < 14) {
+    maxRebid = 22;
+    note = 'Balanced or point-light hand — pass the rebid; a 24+ will fail.';
+  } else if (score < 16) {
+    maxRebid = 23;
+    note = 'Decent hand — a 23 raise is the ceiling.';
+  } else if (score < 18) {
+    maxRebid = 24;
+    note = 'Strong concentrated hand — 24 is defensible.';
+  } else if (score < 20) {
+    maxRebid = 26;
+    note = 'Very strong hand — 26 only with near-solo strength.';
+  } else {
+    maxRebid = 28;
+    note = 'Exceptional solo hand — 28 is on the table.';
+  }
+
+  return { maxRebid, points, score, note };
+}
+
 /**
  * Highest legal bid amount at or below `cap`, or null if none exists.
  */

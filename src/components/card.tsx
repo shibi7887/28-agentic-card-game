@@ -55,7 +55,7 @@ export function CardFace({
       disabled={!onClick}
       aria-label={`${card.rank} of ${card.suit}`}
       className={`relative shrink-0 select-none rounded-[var(--card-r)] font-card transition-all duration-200 ${
-        dimmed ? "opacity-35 saturate-50" : "opacity-100"
+        dimmed ? "opacity-65 saturate-[0.55]" : "opacity-100"
       } ${onClick ? "cursor-pointer hover:brightness-105 active:scale-[0.97]" : "cursor-default"} ${
         elevated ? "-translate-y-2.5 shadow-[0_14px_20px_-6px_rgba(0,0,0,0.6)]" : ""
       } ${className}`}

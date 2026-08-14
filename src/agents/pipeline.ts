@@ -4,7 +4,7 @@ import type { PlayerViewState, Card, LegalMove, Suit, Rank } from '@/engine/type
 import type { AgentProfile } from './profiles';
 import { callLLM } from './providers';
 import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt } from './prompts';
-import { evaluateOpeningHand, chooseMaxLegalBid } from '@/engine/bidding';
+import { evaluateOpeningHand, evaluateRebidHand, chooseMaxLegalBid } from '@/engine/bidding';
 
 interface AgentDecision {
   action: string;
@@ -42,6 +42,40 @@ function clampOpeningBid(
   if (pass) {
     console.warn(`Agent ${name} opening bid ${proposed.amount} exceeds cap ${maxBid} — passing.`);
     return { move: pass, reasoning: `Minimum required bid exceeds my hand's max opening bid (${maxBid}); passing.` };
+  }
+
+  // No legal bid ≤ cap and no pass available (edge case) — keep the proposal.
+  return { move: proposed, reasoning: '' };
+}
+
+/**
+ * Enforce the deterministic rebid cap: with all 8 cards seen, a 24+ bid is
+ * a near-solo contract and must not exceed the hand's computed maximum.
+ * Hands that don't support even 23 are forced to pass.
+ */
+function clampRebid(
+  name: string,
+  state: PlayerViewState,
+  proposed: { type: 'bid'; amount: number },
+): { move: LegalMove; reasoning: string } {
+  const { maxRebid } = evaluateRebidHand(state.hand);
+  if (proposed.amount <= maxRebid) {
+    return { move: proposed, reasoning: '' };
+  }
+
+  const capped = chooseMaxLegalBid(state.legalMoves, maxRebid);
+  if (capped !== null) {
+    console.warn(`Agent ${name} rebid ${proposed.amount} clamped to ${capped} (max ${maxRebid}).`);
+    return {
+      move: { type: 'bid', amount: capped },
+      reasoning: `Rebid capped at ${maxRebid} — hand does not support ${proposed.amount}; bidding ${capped}.`,
+    };
+  }
+
+  const pass = state.legalMoves.find((m) => m.type === 'pass');
+  if (pass) {
+    console.warn(`Agent ${name} rebid ${proposed.amount} exceeds cap ${maxRebid} — passing.`);
+    return { move: pass, reasoning: `Hand supports at most a ${maxRebid} rebid — passing.` };
   }
 
   // No legal bid ≤ cap and no pass available (edge case) — keep the proposal.
@@ -111,6 +145,14 @@ export async function getAgentDecision(
             reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
           };
         }
+        // Enforce the deterministic rebid cap in the 8-card rebid phase.
+        if (state.phase === 'rebidding' && move.type === 'bid') {
+          const clamped = clampRebid(profile.name, state, move);
+          return {
+            move: clamped.move,
+            reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
+          };
+        }
         return { move, reasoning: parsed.reasoning || 'No reasoning provided' };
       }
 
@@ -152,18 +194,23 @@ function smartFallback(
   // Prefer non-pass moves in bidding — but respect the deterministic opening-bid cap.
   const bidMoves = legalMoves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
   if (bidMoves.length > 0) {
-    // The opening-bid cap applies ONLY to the 4-card bidding phase.
-    // During the rebid phase (23+ after the 8-card deal) the low bids are
-    // already excluded by the engine, so pick the lowest legal bid.
+    // The opening-bid cap applies ONLY to the 4-card bidding phase; the
+    // rebid cap applies to the 8-card rebid phase. Otherwise pick the lowest
+    // legal bid (conservative — avoid reckless overbids).
     const openingBid = state.phase === 'bidding';
-    const { maxBid } = openingBid ? evaluateOpeningHand(state.hand) : { maxBid: 28 };
+    const rebidding = state.phase === 'rebidding';
+    const cap = openingBid
+      ? evaluateOpeningHand(state.hand).maxBid
+      : rebidding
+        ? evaluateRebidHand(state.hand).maxRebid
+        : 28;
     const minBid = bidMoves[0].amount;
-    if (openingBid && minBid > maxBid) {
+    if ((openingBid || rebidding) && minBid > cap) {
       // Every legal bid exceeds the cap — prefer passing over an overbid.
       const passMove = legalMoves.find(m => m.type === 'pass');
       if (passMove) {
-        console.warn(`Agent ${name} using fallback pass (min bid ${minBid} exceeds cap ${maxBid})`);
-        return { move: passMove, reasoning: `Fallback: pass (hand max ${maxBid})` };
+        console.warn(`Agent ${name} using fallback pass (min bid ${minBid} exceeds cap ${cap})`);
+        return { move: passMove, reasoning: `Fallback: pass (hand max ${cap})` };
       }
     }
     // Pick the LOWEST legal bid (conservative — avoid reckless overbids).

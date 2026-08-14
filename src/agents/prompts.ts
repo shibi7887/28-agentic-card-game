@@ -2,7 +2,7 @@
 
 import type { PlayerViewState, Card } from "@/engine/types";
 import { formatCard, createDeck } from "@/engine/cards";
-import { evaluateOpeningHand } from "@/engine/bidding";
+import { evaluateOpeningHand, evaluateRebidHand } from "@/engine/bidding";
 import type { AgentProfile } from "./profiles";
 
 function describeHand(hand: PlayerViewState["hand"]): string {
@@ -280,16 +280,26 @@ export function buildRebiddingPrompt(
   profile: AgentProfile,
   state: PlayerViewState,
 ): { system: string; user: string } {
+  const { maxRebid, points, note } = evaluateRebidHand(state.hand);
+
   const system = `${buildGameRulesContext()}
 
 You are ${profile.name}, with playing style: ${profile.strategyStyle}
 
-REBID PHASE: You have now seen all 8 of your cards. You may raise the bid to at least 24 (or higher than the current bid if it is already 24+) if you are confident your team can win that many points, or pass to keep the current bid.`;
+REBID PHASE: You have now seen all 8 of your cards. You may raise the bid (to at least 23, or higher than the current bid if it is already 23+) if your hand is strong enough, or pass to keep the current bid.
+
+CRITICAL — REBID DISCIPLINE:
+- A bid of 24+ is a near-SOLO contract: your team must capture almost every one of the 28 points. It demands strength CONCENTRATED in 1–2 suits (a solid trump suit with J/9/A/10 and length), NOT points scattered across all four suits.
+- HARD LIMIT: your 8-card hand supports a maximum rebid of ${maxRebid}. NEVER bid above ${maxRebid}.
+- ${note}
+- A balanced hand (points spread over 3–4 suits with no deep trump suit) has almost no chance of making 24 — PASS rather than raise.
+- Only raise to 23+ when you hold a clear trump suit with high cards and length.`;
 
   const user = `CURRENT GAME STATE:
 Your hand (8 cards): ${describeHand(state.hand)}
 Current bid: ${state.bid?.amount} by Player ${state.bid?.bidder}
-Minimum rebid: ${Math.max(24, (state.bid?.amount ?? 0) + 1)}
+Minimum rebid: ${Math.max(23, (state.bid?.amount ?? 0) + 1)}
+Hand strength: ${points} points — max rebid ${maxRebid}. Do not bid above ${maxRebid}. If the minimum required bid exceeds ${maxRebid}, pass.
 You are Player ${state.playerIndex} (Team ${state.teamIndex}).
 
 RESPOND with JSON:

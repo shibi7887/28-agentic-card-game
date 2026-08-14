@@ -1,6 +1,6 @@
 // Thuruppu Game Engine — Deterministic Opening-Bid Evaluation Tests
 import { describe, it, expect } from 'vitest';
-import { evaluateOpeningHand, chooseMaxLegalBid } from '../bidding';
+import { evaluateOpeningHand, evaluateRebidHand, chooseMaxLegalBid } from '../bidding';
 import type { Card, LegalMove } from '../types';
 
 const c = (suit: Card['suit'], rank: Card['rank']): Card => ({ suit, rank });
@@ -53,6 +53,58 @@ describe('evaluateOpeningHand', () => {
   it('reports the raw point total', () => {
     const hand = [c('hearts', 'J'), c('hearts', '9'), c('spades', 'A'), c('clubs', '7')];
     expect(evaluateOpeningHand(hand).points).toBe(6);
+  });
+});
+
+// ─── evaluateRebidHand ─────────────────────────────────────────────
+
+describe('evaluateRebidHand', () => {
+  it('balanced weak hand cannot rebid (caps below 23 → pass)', () => {
+    const hand = [
+      c('hearts', 'A'), c('hearts', '10'), c('diamonds', 'K'), c('diamonds', 'Q'),
+      c('clubs', '8'), c('clubs', '7'), c('spades', 'K'), c('spades', 'Q'),
+    ];
+    expect(evaluateRebidHand(hand).maxRebid).toBe(22);
+  });
+
+  it('points scattered across all four suits cannot rebid to 24', () => {
+    const hand = [
+      c('hearts', 'J'), c('hearts', 'A'), c('diamonds', '9'), c('diamonds', 'A'),
+      c('clubs', '10'), c('clubs', 'K'), c('spades', '9'), c('spades', 'Q'),
+    ];
+    expect(evaluateRebidHand(hand).maxRebid).toBeLessThanOrEqual(23);
+  });
+
+  it('strong concentrated trump hand supports a 24 rebid', () => {
+    const hand = [
+      c('hearts', 'J'), c('hearts', '9'), c('hearts', 'A'), c('hearts', '10'), c('hearts', 'K'),
+      c('diamonds', 'J'), c('spades', 'A'), c('spades', '10'),
+    ];
+    expect(evaluateRebidHand(hand).maxRebid).toBeGreaterThanOrEqual(24);
+  });
+
+  it('marginal hand — deep trump but few points — caps at 23 (no 24)', () => {
+    const hand = [
+      c('hearts', 'J'), c('hearts', '9'), c('hearts', 'A'), c('hearts', '10'), c('hearts', 'K'),
+      c('spades', 'A'), c('spades', '10'), c('clubs', '8'),
+    ];
+    expect(evaluateRebidHand(hand).maxRebid).toBe(23);
+  });
+
+  it('two strong suits with high cards supports 26+', () => {
+    const hand = [
+      c('hearts', 'J'), c('hearts', '9'), c('hearts', 'A'), c('hearts', '10'),
+      c('spades', 'J'), c('spades', '9'), c('spades', 'A'), c('spades', '10'),
+    ];
+    expect(evaluateRebidHand(hand).maxRebid).toBeGreaterThanOrEqual(26);
+  });
+
+  it('reports the raw point total', () => {
+    const hand = [
+      c('hearts', 'J'), c('hearts', '9'), c('spades', 'A'), c('clubs', '7'),
+      c('diamonds', '10'), c('diamonds', 'K'), c('clubs', '8'), c('spades', 'Q'),
+    ];
+    expect(evaluateRebidHand(hand).points).toBe(7);
   });
 });
 

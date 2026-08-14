@@ -113,7 +113,7 @@ export default function PlayerSeat({
             card={card}
             size="var(--card-w)"
             elevated={selected}
-            dimmed={interactive && !legal}
+            dimmed={interactive && legalCards.length > 0 && !legal}
             onClick={interactive && legal ? () => onCardClick(card) : undefined}
             className={selected ? "-translate-y-3" : ""}
           />

@@ -216,14 +216,35 @@ The bidding team's game points change by the bracket value; the defending team's
 
 Agent reasoning is visible in the **Table Talk** section below the game table.
 
+### AI decision architecture (hybrid search + LLM)
+
+The AI uses a three-tier split, not pure LLM:
+
+| Tier | Responsibility | Implementation |
+|------|---------------|----------------|
+| **Rules engine** | Legal moves, trick winner, points, round-decided math | `src/engine/game.ts` |
+| **Monte-Carlo search** | Card play (which card to play, when to call trump) | `src/engine/search.ts` |
+| **LLM** | Judgment calls: bidding, trump selection, rebid | `src/agents/pipeline.ts` |
+
+Card play is decided by **search, not the LLM**: the engine samples many possible distributions of the hidden cards, greedily plays out each one, and picks the card with the highest expected team points. This is faster and more reliable than an LLM for the combinatorial core, and it never produces an illegal move. The LLM only handles bidding/trump/rebid, where judgment and table psychology matter.
+
+Tune it via env:
+
+```env
+# AGENT_USE_SEARCH=true   # default: search for card play, LLM for judgment
+# SEARCH_SAMPLES=150      # hidden-deal samples per move (higher = stronger, slower)
+```
+
 ## Architecture
 
 ```
 src/
-├── engine/           # Pure TypeScript game engine (30 tests)
+├── engine/           # Pure TypeScript game engine (46 tests)
 │   ├── types.ts      # All game types & state model
 │   ├── cards.ts      # Deck, card values, utilities
 │   ├── game.ts       # State machine — bidding, tricks, scoring
+│   ├── bidding.ts    # Deterministic opening-bid evaluation
+│   ├── search.ts     # Monte-Carlo card-play search (hybrid AI)
 │   └── __tests__/    # Vitest test suite
 ├── agents/           # LLM-powered AI player system
 │   ├── profiles.ts   # Agent personas & model config
