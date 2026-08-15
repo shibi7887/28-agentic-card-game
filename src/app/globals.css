@@ -32,7 +32,7 @@
   --btn-gradient-to: #f79e42;
 
   /* Card geometry — scales with viewport */
-  --card-w: clamp(2.5rem, 9vw, 4.5rem);
+  --card-w: clamp(2.75rem, 10vw, 5.25rem);
   --card-h: calc(var(--card-w) * 1.42);
   --card-r: max(0.32rem, calc(var(--card-w) * 0.13));
 }
