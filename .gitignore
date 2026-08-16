@@ -1,6 +1,7 @@
 node_modules/
 .next/
 out/
+.worktrees/
 .env
 .env.local
 .env.*.local
