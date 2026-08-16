@@ -8,6 +8,7 @@ import TrickArea from "./trick-area";
 import BidPanel from "./bid-panel";
 import RoundResult from "./round-result";
 import { SEATS } from "./table-config";
+import { trickToDisplay } from "./trick-display";
 import type { Card, LegalMove, PlayerIndex, PlayerViewState, TrickCard, Phase } from "@/engine/types";
 
 export interface PendingPlay {
@@ -99,12 +100,18 @@ export default function GameTable({
       return;
     }
 
-    // Don't clear cards when game is in scoring/finished — keep last trick visible
-    if (view.phase === 'scoring' || view.phase === 'finished') {
-      if (newCount === 8 && displayCards.some(c => c !== null)) {
-        // Keep last trick visible
-        return;
+    // Round/game over — the last trick is no longer in currentTrick (it was
+    // cleared the moment the 4th card landed). Rebuild it from the completed
+    // trick record so all four cards of the final trick stay visible, instead
+    // of leaving the last card off the table.
+    if ((view.phase === 'scoring' || view.phase === 'finished') && newCount === 8) {
+      const finalTrick = view.tricks[newCount - 1];
+      if (finalTrick) {
+        const filled = trickToDisplay(finalTrick);
+        setDisplayCards(filled);
+        setWinningPlayer(finalTrick.winner);
       }
+      return;
     }
 
     if (trickCompleted) {
