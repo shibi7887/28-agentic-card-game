@@ -164,6 +164,18 @@ function beatsWinner(
   return getTrickWinner(all, leadSuit, state.trumpSuit, state.trumpRevealed) === player;
 }
 
+/** Whether the current player should reveal trump during the playout.
+ *  Contract-aware: only when the trick's points are material (>= 2) and our
+ *  team is not already winning it. Fixes the "burn trump early" behavior. */
+export function shouldCallTrump(state: GameState, player: PlayerIndex): boolean {
+  const placed = state.currentTrick.cards.filter((c) => c !== null) as TrickCard[];
+  const pointsAtStake = placed.reduce((sum, tc) => sum + getCardPoints(tc.card), 0);
+  if (pointsAtStake < 2) return false;
+  const winner = currentTrickWinner(state);
+  if (winner && getTeam(winner.player) === getTeam(player)) return false;
+  return true;
+}
+
 /**
  * Greedy card choice for a single player during the playout. This is a simple
  * "win the trick cheaply, otherwise dump low" policy — imperfect, but the
@@ -247,14 +259,7 @@ function playout(
     const callTrump = moves.find((m) => m.type === 'callTrump');
     let chosen: LegalMove;
     if (callTrump && s.currentTrick.leadSuit !== null) {
-      // If we can cut a point-bearing trick with trump, prefer calling trump.
-      const placed = s.currentTrick.cards.filter((c) => c !== null) as TrickCard[];
-      const pointsAtStake = placed.reduce((sum, tc) => sum + getCardPoints(tc.card), 0);
-      if (pointsAtStake > 0) {
-        chosen = callTrump;
-      } else {
-        chosen = greedyPlay(s, s.currentPlayer);
-      }
+      chosen = shouldCallTrump(s, s.currentPlayer) ? callTrump : greedyPlay(s, s.currentPlayer);
     } else {
       chosen = greedyPlay(s, s.currentPlayer);
     }

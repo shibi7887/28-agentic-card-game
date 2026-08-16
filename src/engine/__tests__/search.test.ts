@@ -1,6 +1,6 @@
 // Thuruppu Game Engine — Monte Carlo search tests
 import { describe, it, expect } from 'vitest';
-import { bestPlayDecision, mulberry32, roundWin } from '../search';
+import { bestPlayDecision, mulberry32, roundWin, shouldCallTrump } from '../search';
 import { getLegalMoves } from '../game';
 import type { Card, GameState, PlayerIndex, Suit } from '../types';
 
@@ -142,5 +142,35 @@ describe('Monte Carlo search', () => {
     expect(r!.pMakeContract).toBeGreaterThanOrEqual(0);
     expect(r!.pMakeContract).toBeLessThanOrEqual(1);
     expect(r!.expectedPoints).toBeGreaterThanOrEqual(0);
+  });
+
+  it('shouldCallTrump is contract-aware: skips low-value tricks, calls when material', () => {
+    const low = makePlayState({
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'diamonds', rank: '7' }],
+        [{ suit: 'hearts', rank: 'A' }],
+        [{ suit: 'hearts', rank: '7' }],
+        [{ suit: 'clubs', rank: '7' }],
+      ],
+      currentPlayer: 0 as PlayerIndex,
+      currentTrick: { cards: [null, { card: { suit: 'hearts', rank: 'A' }, player: 1 }, null, null], leadSuit: 'hearts' },
+      trumpSuit: 'spades',
+      trumpRevealed: false,
+    });
+    expect(shouldCallTrump(low, 0)).toBe(false);
+
+    const high = makePlayState({
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'diamonds', rank: '7' }],
+        [{ suit: 'hearts', rank: 'J' }],
+        [{ suit: 'hearts', rank: '7' }],
+        [{ suit: 'clubs', rank: '7' }],
+      ],
+      currentPlayer: 0 as PlayerIndex,
+      currentTrick: { cards: [null, { card: { suit: 'hearts', rank: 'J' }, player: 1 }, null, null], leadSuit: 'hearts' },
+      trumpSuit: 'spades',
+      trumpRevealed: false,
+    });
+    expect(shouldCallTrump(high, 0)).toBe(true);
   });
 });
