@@ -161,6 +161,7 @@ RESPOND with JSON:
 export function buildPlayPrompt(
   profile: AgentProfile,
   state: PlayerViewState,
+  table?: MoveEvaluation[],
 ): { system: string; user: string } {
   const trumpStatus = state.trumpRevealed
     ? `Trump is ${state.trumpSuit}. Phase 2: trump is active.`
@@ -241,6 +242,13 @@ Consider your partner's and opponents' likely hands.`;
     ? `\nIMPORTANT: You cannot follow the led suit. You may either (1) discard any card, or (2) "callTrump" to reveal the trump suit (then you must play trump if you hold any). ${trickWinnerInfo} Points currently at stake in this trick: ${trickPoints}. Decide strategically: call trump to capture a trick your team is losing, or discard if your team already wins it.`
     : "";
 
+  const tableBlock = table && table.length
+    ? `SIMULATED OUTCOME TABLE (Monte-Carlo estimates for your legal moves):
+${table.map((m) => `- ${m.label}: ${Math.round(m.pMakeContract * 100)}% to make the bid (expected ${m.expectedPoints.toFixed(1)} pts)`).join('\n')}
+
+Use these as guidance. You may deviate if you see a strategic reason.`
+    : '';
+
   const user = `CURRENT GAME STATE:
 Your hand: ${describeHand(state.hand)}
 ${trumpStatus}
@@ -256,6 +264,7 @@ ${callTrumpHint}
 
 ${buildCardMemory(state)}
 
+${tableBlock}
 Legal cards you can play: ${legalMoves.join(", ")}
 ${canCallTrump ? 'You may also "callTrump" instead of playing a card.' : ""}
 

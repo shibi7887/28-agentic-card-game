@@ -95,6 +95,7 @@ function stripMarkdownFences(text: string): string {
 export async function getAgentDecision(
   profile: AgentProfile,
   state: PlayerViewState,
+  table?: MoveEvaluation[],
 ): Promise<{ move: LegalMove; reasoning: string }> {
   const legalMoves = state.legalMoves;
   if (legalMoves.length === 0) {
@@ -112,7 +113,7 @@ export async function getAgentDecision(
   } else if (phase === 'selectingTrump') {
     ({ system, user } = buildTrumpSelectionPrompt(profile, state));
   } else {
-    ({ system, user } = buildPlayPrompt(profile, state));
+    ({ system, user } = buildPlayPrompt(profile, state, table));
   }
 
   const messages = [

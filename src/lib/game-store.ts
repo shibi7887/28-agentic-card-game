@@ -3,21 +3,49 @@
 
 import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
 import { createGame, applyMove, getPlayerView, concedeGame, resolveRoundEarly, getRoundDecided } from '@/engine/game';
-import { bestPlayDecision } from '@/engine/search';
+import { bestPlayDecision, evaluateMoves } from '@/engine/search';
+import type { SearchResult, MoveEvaluation } from '@/engine/search';
 import { getAgentProfile } from '@/agents/profiles';
-import { getAgentDecision } from '@/agents/pipeline';
+import type { AgentProfile } from '@/agents/profiles';
+import { getAgentDecision, getExplanation } from '@/agents/pipeline';
 
 // Early-concede is enabled by default; set ALLOW_CONCEDE=false to disable.
 const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
 // Early round resolution is enabled by default; set ALLOW_EARLY_RESOLVE=false to disable.
 const ALLOW_EARLY_RESOLVE = process.env.ALLOW_EARLY_RESOLVE !== 'false';
-// Monte-Carlo card-play search is enabled by default; set AGENT_USE_SEARCH=false
-// to route all decisions (including card play) through the LLM instead.
-const USE_SEARCH = process.env.AGENT_USE_SEARCH !== 'false';
+// Monte-Carlo card-play search mode: 'search' (default) uses the search for
+// card play, 'llm' routes all decisions through the LLM, and 'hybrid' lets the
+// LLM decide with a Monte-Carlo outcome table as guidance. AGENT_USE_SEARCH is
+// kept as a legacy alias ('false' → 'llm').
+const PLAY_MODE = (process.env.AGENT_PLAY_MODE || (process.env.AGENT_USE_SEARCH === 'false' ? 'llm' : 'search')) as 'search' | 'llm' | 'hybrid';
+// When true, an LLM explains the search-chosen move (Table Talk) instead of
+// showing the raw search reasoning.
+const EXPLAIN = process.env.AGENT_EXPLAIN === 'true';
 const SEARCH_SAMPLES = (() => {
   const n = parseInt(process.env.SEARCH_SAMPLES || '', 10);
   return Number.isNaN(n) || n <= 0 ? 150 : n;
 })();
+
+function safeSearch(state: GameState, player: PlayerIndex): SearchResult | null {
+  try { return bestPlayDecision(state, player, { samples: SEARCH_SAMPLES }); }
+  catch (e) { console.warn('search failed, falling back to LLM:', (e as Error).message); return null; }
+}
+function safeEvaluate(state: GameState, player: PlayerIndex): MoveEvaluation[] {
+  try { return evaluateMoves(state, player, { samples: SEARCH_SAMPLES }); }
+  catch (e) { console.warn('evaluateMoves failed:', (e as Error).message); return []; }
+}
+async function explainSafely(profile: AgentProfile, view: PlayerViewState, result: SearchResult): Promise<string> {
+  try {
+    const chosen = result.moves.find((m) => m.move === result.move);
+    return await getExplanation(profile, view, {
+      label: chosen?.label ?? '',
+      pMakeContract: result.pMakeContract,
+    }, result.moves);
+  } catch (e) {
+    console.warn('explain failed, using search reasoning:', (e as Error).message);
+    return result.reasoning;
+  }
+}
 
 interface StoredGame {
   state: GameState;
@@ -208,30 +236,29 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
   try {
     const profile = getAgentProfile(agentId);
 
-    // Monte-Carlo search for card play — faster, more reliable, and stronger
-    // than the LLM for the combinatorial core of the game. The LLM still
-    // handles bidding, trump selection, and the rebid (judgment calls).
+    // Card play can be decided by Monte-Carlo search, the LLM, or a hybrid of
+    // both (LLM decides with a search outcome table as guidance), per PLAY_MODE.
+    // The LLM still handles bidding, trump selection, and the rebid.
     let move;
     let reasoning;
     const phase = game.state.phase;
 
-    let searchResult: ReturnType<typeof bestPlayDecision> = null;
-    if (USE_SEARCH && (phase === 'firstPhase' || phase === 'secondPhase')) {
-      try {
-        searchResult = bestPlayDecision(game.state, player, { samples: SEARCH_SAMPLES });
-      } catch (e) {
-        // Never let a search crash stall the game — fall through to the LLM.
-        console.warn(`Agent ${profile.name} search failed, falling back to LLM:`, (e as Error).message);
-        searchResult = null;
+    const isPlayPhase = phase === 'firstPhase' || phase === 'secondPhase';
+    if (isPlayPhase && PLAY_MODE === 'search') {
+      const result = safeSearch(game.state, player);
+      if (result) {
+        move = result.move;
+        reasoning = EXPLAIN
+          ? await explainSafely(profile, getPlayerView(game.state, player), result)
+          : result.reasoning;
+      } else {
+        ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
       }
-    }
-
-    if (searchResult) {
-      move = searchResult.move;
-      reasoning = searchResult.reasoning;
+    } else if (isPlayPhase && PLAY_MODE === 'hybrid') {
+      const table = safeEvaluate(game.state, player);
+      ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player), table));
     } else {
-      const playerView = getPlayerView(game.state, player);
-      ({ move, reasoning } = await getAgentDecision(profile, playerView));
+      ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
     }
 
     game.state = applyMove(game.state, move);
