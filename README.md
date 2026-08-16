@@ -226,7 +226,7 @@ The AI uses a three-tier split, not pure LLM:
 | **Monte-Carlo search** | Card play (which card to play, when to call trump) | `src/engine/search.ts` |
 | **LLM** | Judgment calls: bidding, trump selection, rebid | `src/agents/pipeline.ts` |
 
-Card play is decided by **search, not the LLM**: the engine samples many possible distributions of the hidden cards, greedily plays out each one, and picks the card with the highest expected team points. This is faster and more reliable than an LLM for the combinatorial core, and it never produces an illegal move. The LLM only handles bidding/trump/rebid, where judgment and table psychology matter.
+Card play defaults to **search, not the LLM**: the engine samples many possible distributions of the hidden cards, greedily plays out each one, and picks the card with the highest probability of making the bid contract. This is faster and more reliable than an LLM for the combinatorial core, and it never produces an illegal move. The LLM handles bidding/trump/rebid, where judgment and table psychology matter — and via `AGENT_PLAY_MODE=hybrid` it can advise card play using the search's per-move estimates, or explain search-chosen moves with `AGENT_EXPLAIN=true`.
 
 Tune it via env:
 
