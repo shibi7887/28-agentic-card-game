@@ -1,6 +1,6 @@
 // Thuruppu Game Engine — Monte Carlo search tests
 import { describe, it, expect } from 'vitest';
-import { bestPlayDecision, mulberry32 } from '../search';
+import { bestPlayDecision, mulberry32, roundWin } from '../search';
 import { getLegalMoves } from '../game';
 import type { Card, GameState, PlayerIndex, Suit } from '../types';
 
@@ -110,5 +110,20 @@ describe('Monte Carlo search', () => {
     const card = (result!.move as { card: Card }).card;
     expect(card.suit).toBe('spades');
     expect(card.rank).toBe('J');
+  });
+
+  it('roundWin scores contract success from the deciding player perspective', () => {
+    const tricks = [
+      { cards: [], winner: 0 as PlayerIndex, points: 10 },
+      { cards: [], winner: 2 as PlayerIndex, points: 8 },
+    ];
+    const fail = makePlayState({ bid: { amount: 20, bidder: 0 as PlayerIndex }, tricks });
+    expect(roundWin(fail, 0)).toBe(0);
+    expect(roundWin(fail, 1)).toBe(1);
+    expect(roundWin(fail, 3)).toBe(1);
+    const win = makePlayState({ bid: { amount: 16, bidder: 0 as PlayerIndex }, tricks });
+    expect(roundWin(win, 0)).toBe(1);
+    expect(roundWin(win, 2)).toBe(1);
+    expect(roundWin(win, 1)).toBe(0);
   });
 });

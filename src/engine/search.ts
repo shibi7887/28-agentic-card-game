@@ -216,6 +216,20 @@ function teamPoints(state: GameState, playerIndex: PlayerIndex): number {
   return pts;
 }
 
+/** 1 if `playerIndex`'s team wins the round (makes/breaks the contract), else 0. */
+export function roundWin(state: GameState, playerIndex: PlayerIndex): 0 | 1 {
+  const bid = state.bid;
+  if (!bid) return 0;
+  const bidderTeam = getTeam(bid.bidder);
+  let biddingTeamPoints = 0;
+  for (const t of state.tricks) {
+    if (getTeam(t.winner) === bidderTeam) biddingTeamPoints += t.points;
+  }
+  const madeBid = biddingTeamPoints >= bid.amount;
+  const myTeam = getTeam(playerIndex);
+  return (myTeam === bidderTeam ? madeBid : !madeBid) ? 1 : 0;
+}
+
 /** Play out the round from the given state, returning the team's card points. */
 function playout(state: GameState, playerIndex: PlayerIndex): number {
   let s = cloneState(state);
