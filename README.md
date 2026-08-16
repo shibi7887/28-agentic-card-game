@@ -231,8 +231,10 @@ Card play is decided by **search, not the LLM**: the engine samples many possibl
 Tune it via env:
 
 ```env
-# AGENT_USE_SEARCH=true   # default: search for card play, LLM for judgment
-# SEARCH_SAMPLES=150      # hidden-deal samples per move (higher = stronger, slower)
+# AGENT_PLAY_MODE=search   # search (default) | hybrid (LLM decides w/ search table) | llm
+# AGENT_USE_SEARCH=false   # legacy alias for AGENT_PLAY_MODE=llm
+# SEARCH_SAMPLES=150       # hidden-deal samples per move (higher = stronger, slower)
+# AGENT_EXPLAIN=true       # LLM explains search-chosen moves (Table Talk); off by default
 ```
 
 ## Architecture
