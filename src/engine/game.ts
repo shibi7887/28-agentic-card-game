@@ -285,44 +285,11 @@ function getSecondPhaseMoves(state: GameState): LegalMove[] {
         moves.push({ type: 'playCard', card });
       }
     } else {
-      // Cannot follow suit
-      const trickHasTrump = state.currentTrick.cards.some(
-        c => c !== null && trumpSuit !== null && c.card.suit === trumpSuit,
-      );
-
-      if (trickHasTrump && trumpSuit) {
-        // Must over-trump if possible
-        const myTrumps = getCardsOfSuit(hand, trumpSuit);
-        if (myTrumps.length > 0) {
-          const trumpInTrick = state.currentTrick.cards.filter(
-            c => c !== null && c.card.suit === trumpSuit,
-          ) as TrickCard[];
-          const highestTrumpInTrick = trumpInTrick.reduce<TrickCard>((best, c) =>
-            getRankValue(c.card.rank) > getRankValue(best.card.rank) ? c : best,
-          trumpInTrick[0]);
-
-          const overTrumps = myTrumps.filter(
-            c => getRankValue(c.rank) > getRankValue(highestTrumpInTrick!.card.rank),
-          );
-
-          if (overTrumps.length > 0) {
-            for (const card of overTrumps) {
-              moves.push({ type: 'playCard', card });
-            }
-          } else {
-            for (const card of hand) {
-              moves.push({ type: 'playCard', card });
-            }
-          }
-        } else {
-          for (const card of hand) {
-            moves.push({ type: 'playCard', card });
-          }
-        }
-      } else {
-        for (const card of hand) {
-          moves.push({ type: 'playCard', card });
-        }
+      // Cannot follow suit — may play any card. Trump is optional in Phase 2;
+      // over-trumping is never forced (only the trump caller is obliged to play
+      // trump, handled above via mustPlayTrump).
+      for (const card of hand) {
+        moves.push({ type: 'playCard', card });
       }
     }
   }

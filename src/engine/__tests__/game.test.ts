@@ -340,6 +340,33 @@ describe('Legal Moves - Play', () => {
     const playCards = moves.filter(m => m.type === 'playCard').map(m => (m as { type: 'playCard'; card: Card }).card);
     expect(playCards).toHaveLength(3);
   });
+
+  it('can play any card when void even if trump is in the trick (no forced over-trump)', () => {
+    const state: GameState = {
+      ...createGame(0),
+      phase: 'secondPhase',
+      trumpSuit: 'spades',
+      trumpRevealed: true,
+      currentTrick: {
+        cards: [{ card: { suit: 'spades', rank: '7' }, player: 1 }, null, null, null],
+        leadSuit: 'clubs',
+      },
+      hands: [
+        [
+          { suit: 'hearts', rank: 'A' },
+          { suit: 'diamonds', rank: 'J' },
+          { suit: 'spades', rank: 'K' },
+        ],
+        [], [], [],
+      ] as [Card[], Card[], Card[], Card[]],
+      currentPlayer: 0,
+      bid: { amount: 14, bidder: 3 },
+    } as GameState;
+
+    const moves = getLegalMoves(state);
+    const playCards = moves.filter(m => m.type === 'playCard').map(m => (m as { type: 'playCard'; card: Card }).card);
+    expect(playCards).toHaveLength(3); // A♥, J♦, K♠ all legal — trump is optional
+  });
 });
 
 // ─── Player View ───────────────────────────────────────────────────
