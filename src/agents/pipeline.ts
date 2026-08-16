@@ -1,9 +1,10 @@
 // Agent decision pipeline — full flow from state to validated move
 
 import type { PlayerViewState, Card, LegalMove, Suit, Rank } from '@/engine/types';
+import type { MoveEvaluation } from '@/engine/search';
 import type { AgentProfile } from './profiles';
 import { callLLM } from './providers';
-import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt } from './prompts';
+import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt, buildExplainPrompt } from './prompts';
 import { evaluateOpeningHand, evaluateRebidHand, chooseMaxLegalBid } from '@/engine/bidding';
 
 interface AgentDecision {
@@ -178,6 +179,26 @@ export async function getAgentDecision(
 
   // All retries exhausted — use smart fallback
   return smartFallback(profile.name, state, legalMoves);
+}
+
+/** Generate a natural-language explanation for an already-chosen (search) move. */
+export async function getExplanation(
+  profile: AgentProfile,
+  state: PlayerViewState,
+  chosen: { label: string; pMakeContract: number },
+  table: MoveEvaluation[],
+): Promise<string> {
+  const { system, user } = buildExplainPrompt(profile, state, chosen, table);
+  const response = await callLLM(profile.provider, profile.model, [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ], profile.temperature, { type: 'json_object' });
+  const cleaned = stripMarkdownFences(response);
+  try {
+    const parsed = JSON.parse(cleaned) as { reasoning?: string };
+    if (parsed.reasoning) return parsed.reasoning;
+  } catch { /* fall through */ }
+  return chosen.label;
 }
 
 function cardPoints(rank: Rank): number {

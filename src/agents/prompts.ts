@@ -1,6 +1,7 @@
 // Prompt templates for AI agent decisions
 
 import type { PlayerViewState, Card } from "@/engine/types";
+import type { MoveEvaluation } from "@/engine/search";
 import { formatCard, createDeck } from "@/engine/cards";
 import { evaluateOpeningHand, evaluateRebidHand } from "@/engine/bidding";
 import type { AgentProfile } from "./profiles";
@@ -308,6 +309,34 @@ RESPOND with JSON:
   "action": "bid" | "pass",
   "bidAmount": number (only if action is "bid")
 }`;
+
+  return { system, user };
+}
+
+export function buildExplainPrompt(
+  profile: AgentProfile,
+  state: PlayerViewState,
+  chosen: { label: string; pMakeContract: number },
+  table: MoveEvaluation[],
+): { system: string; user: string } {
+  const system = `${buildGameRulesContext()}
+
+You are ${profile.name}, with playing style: ${profile.strategyStyle}
+
+Your move for this trick was ALREADY chosen by a Monte-Carlo simulation. Explain your reasoning in your own voice, in 1-2 sentences. Do not propose a different move.`;
+
+  const rows = table
+    .slice()
+    .sort((a, b) => b.pMakeContract - a.pMakeContract)
+    .map((m) => `- ${m.label}: ${Math.round(m.pMakeContract * 100)}% (expected ${m.expectedPoints.toFixed(1)} pts)`)
+    .join('\n');
+
+  const user = `Chosen move: ${chosen.label} (${Math.round(chosen.pMakeContract * 100)}% to make the bid)
+
+Simulated outcomes for legal moves:
+${rows}
+
+Respond with JSON: { "reasoning": "..." }`;
 
   return { system, user };
 }
