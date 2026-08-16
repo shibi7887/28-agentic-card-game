@@ -22,6 +22,13 @@ export interface SearchOptions {
   rng?: () => number;
 }
 
+export interface MoveEvaluation {
+  move: LegalMove;
+  pMakeContract: number;
+  expectedPoints: number;
+  label: string;
+}
+
 export interface SearchResult {
   move: LegalMove;
   /** Expected card points the team wins over the remaining tricks. */
@@ -30,6 +37,8 @@ export interface SearchResult {
   pMakeContract: number;
   /** Human-readable rationale. */
   reasoning: string;
+  /** Per-move evaluation table. */
+  moves: MoveEvaluation[];
 }
 
 // ─── RNG ────────────────────────────────────────────────────────────
@@ -292,12 +301,35 @@ function evaluateMove(
 
 // ─── Public API ─────────────────────────────────────────────────────
 
+function moveLabel(move: LegalMove): string {
+  if (move.type === 'callTrump') return 'call trump';
+  if (move.type === 'playCard') return `play ${formatCard(move.card)}`;
+  return String(move.type);
+}
+
+/** Monte-Carlo evaluation of every candidate play/call-trump move. */
+export function evaluateMoves(
+  state: GameState,
+  playerIndex: PlayerIndex,
+  options: SearchOptions = {},
+): MoveEvaluation[] {
+  const samples = options.samples ?? 150;
+  const rng = options.rng ?? Math.random;
+  const candidates = getLegalMoves(state).filter(
+    (m) => m.type === 'playCard' || m.type === 'callTrump',
+  );
+  return candidates.map((move) => {
+    const { pMakeContract, expectedPoints } = evaluateMove(state, playerIndex, move, samples, rng);
+    return { move, pMakeContract, expectedPoints, label: moveLabel(move) };
+  });
+}
+
 /**
  * Pick the best play decision for `playerIndex` using Monte-Carlo search.
  *
  * Returns null if the state is not a play phase or there are no play moves.
  * Considers every legal card plus "callTrump" (when legal), and returns the
- * move with the highest expected team card points.
+ * move with the highest probability of making the bid contract.
  */
 export function bestPlayDecision(
   state: GameState,
@@ -305,38 +337,16 @@ export function bestPlayDecision(
   options: SearchOptions = {},
 ): SearchResult | null {
   if (state.phase !== 'firstPhase' && state.phase !== 'secondPhase') return null;
-
-  const samples = options.samples ?? 150;
-  const rng = options.rng ?? Math.random;
-
-  const moves = getLegalMoves(state);
-  const candidates: LegalMove[] = moves.filter(
-    (m) => m.type === 'playCard' || m.type === 'callTrump',
-  );
-  if (candidates.length === 0) return null;
-
-  let best: LegalMove = candidates[0];
-  let bestScore = { pMakeContract: -Infinity, expectedPoints: -Infinity };
-  for (const move of candidates) {
-    const score = evaluateMove(state, playerIndex, move, samples, rng);
-    if (score.pMakeContract > bestScore.pMakeContract) {
-      bestScore = score;
-      best = move;
-    }
-  }
-
-  const label =
-    best.type === 'callTrump'
-      ? 'call trump'
-      : best.type === 'playCard'
-        ? `play ${formatCard(best.card)}`
-        : String(best.type);
-  const pct = Math.round(bestScore.pMakeContract * 100);
+  const moves = evaluateMoves(state, playerIndex, options);
+  if (moves.length === 0) return null;
+  const best = moves.reduce((a, b) => (b.pMakeContract > a.pMakeContract ? b : a));
+  const pct = Math.round(best.pMakeContract * 100);
   const bidAmt = state.bid?.amount ?? '?';
   return {
-    move: best,
-    expectedPoints: bestScore.expectedPoints,
-    pMakeContract: bestScore.pMakeContract,
-    reasoning: `Search (${samples} samples) → ${label} (${pct}% to make the ${bidAmt}-bid)`,
+    move: best.move,
+    expectedPoints: best.expectedPoints,
+    pMakeContract: best.pMakeContract,
+    reasoning: `Search (${options.samples ?? 150} samples) → ${best.label} (${pct}% to make the ${bidAmt}-bid)`,
+    moves,
   };
 }

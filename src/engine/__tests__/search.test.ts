@@ -1,6 +1,6 @@
 // Thuruppu Game Engine — Monte Carlo search tests
 import { describe, it, expect } from 'vitest';
-import { bestPlayDecision, mulberry32, roundWin, shouldCallTrump } from '../search';
+import { bestPlayDecision, evaluateMoves, mulberry32, roundWin, shouldCallTrump } from '../search';
 import { getLegalMoves } from '../game';
 import type { Card, GameState, PlayerIndex, Suit } from '../types';
 
@@ -172,5 +172,23 @@ describe('Monte Carlo search', () => {
       trumpRevealed: false,
     });
     expect(shouldCallTrump(high, 0)).toBe(true);
+  });
+
+  it('evaluateMoves returns one entry per candidate with a label', () => {
+    const state = makePlayState({
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'hearts', rank: '7' }],
+        [], [], [],
+      ],
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+    });
+    const moves = evaluateMoves(state, 0, { samples: 10, rng: mulberry32(42) });
+    expect(moves.length).toBeGreaterThan(0);
+    for (const m of moves) {
+      expect(m.pMakeContract).toBeGreaterThanOrEqual(0);
+      expect(m.pMakeContract).toBeLessThanOrEqual(1);
+      expect(typeof m.label).toBe('string');
+      expect(m.label.length).toBeGreaterThan(0);
+    }
   });
 });
