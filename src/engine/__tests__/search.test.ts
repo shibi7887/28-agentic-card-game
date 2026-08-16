@@ -126,4 +126,21 @@ describe('Monte Carlo search', () => {
     expect(roundWin(win, 2)).toBe(1);
     expect(roundWin(win, 1)).toBe(0);
   });
+
+  it('bestPlayDecision reports pMakeContract in [0,1] and expectedPoints', () => {
+    const state = makePlayState({
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'hearts', rank: '7' }, { suit: 'clubs', rank: '9' }],
+        [{ suit: 'diamonds', rank: 'A' }],
+        [{ suit: 'hearts', rank: 'A' }],
+        [{ suit: 'clubs', rank: 'K' }],
+      ],
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+    });
+    const r = bestPlayDecision(state, 0, { samples: 30, rng: mulberry32(99) });
+    expect(r).not.toBeNull();
+    expect(r!.pMakeContract).toBeGreaterThanOrEqual(0);
+    expect(r!.pMakeContract).toBeLessThanOrEqual(1);
+    expect(r!.expectedPoints).toBeGreaterThanOrEqual(0);
+  });
 });

@@ -13,7 +13,7 @@
 
 import type { Card, GameState, LegalMove, PlayerIndex, Rank, Suit, TrickCard } from './types';
 import { getLegalMoves, applyMove, getTrickWinner } from './game';
-import { createDeck, getCardPoints, getRankValue, getTeam } from './cards';
+import { createDeck, formatCard, getCardPoints, getRankValue, getTeam } from './cards';
 
 export interface SearchOptions {
   /** Number of sampled hidden deals per candidate move. Default 150. */
@@ -26,6 +26,8 @@ export interface SearchResult {
   move: LegalMove;
   /** Expected card points the team wins over the remaining tricks. */
   expectedPoints: number;
+  /** Estimated probability (0..1) that the team makes the bid contract. */
+  pMakeContract: number;
   /** Human-readable rationale. */
   reasoning: string;
 }
@@ -231,7 +233,10 @@ export function roundWin(state: GameState, playerIndex: PlayerIndex): 0 | 1 {
 }
 
 /** Play out the round from the given state, returning the team's card points. */
-function playout(state: GameState, playerIndex: PlayerIndex): number {
+function playout(
+  state: GameState,
+  playerIndex: PlayerIndex,
+): { win: 0 | 1; points: number } {
   let s = cloneState(state);
   let guard = 0;
   while ((s.phase === 'firstPhase' || s.phase === 'secondPhase') && guard < 200) {
@@ -256,7 +261,7 @@ function playout(state: GameState, playerIndex: PlayerIndex): number {
     s = applyMove(s, chosen);
     guard++;
   }
-  return teamPoints(s, playerIndex);
+  return { win: roundWin(s, playerIndex), points: teamPoints(s, playerIndex) };
 }
 
 // ─── Move evaluation ────────────────────────────────────────────────
@@ -267,14 +272,17 @@ function evaluateMove(
   move: LegalMove,
   samples: number,
   rng: () => number,
-): number {
-  let total = 0;
+): { pMakeContract: number; expectedPoints: number } {
+  let winTotal = 0;
+  let ptsTotal = 0;
   for (let i = 0; i < samples; i++) {
     const deal = sampleDeal(state, playerIndex, rng);
     const next = applyMove(deal, move);
-    total += playout(next, playerIndex);
+    const { win, points } = playout(next, playerIndex);
+    winTotal += win;
+    ptsTotal += points;
   }
-  return total / samples;
+  return { pMakeContract: winTotal / samples, expectedPoints: ptsTotal / samples };
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -303,10 +311,10 @@ export function bestPlayDecision(
   if (candidates.length === 0) return null;
 
   let best: LegalMove = candidates[0];
-  let bestScore = -Infinity;
+  let bestScore = { pMakeContract: -Infinity, expectedPoints: -Infinity };
   for (const move of candidates) {
     const score = evaluateMove(state, playerIndex, move, samples, rng);
-    if (score > bestScore) {
+    if (score.pMakeContract > bestScore.pMakeContract) {
       bestScore = score;
       best = move;
     }
@@ -316,11 +324,14 @@ export function bestPlayDecision(
     best.type === 'callTrump'
       ? 'call trump'
       : best.type === 'playCard'
-        ? `play ${best.card.rank}${best.card.suit}`
+        ? `play ${formatCard(best.card)}`
         : String(best.type);
+  const pct = Math.round(bestScore.pMakeContract * 100);
+  const bidAmt = state.bid?.amount ?? '?';
   return {
     move: best,
-    expectedPoints: bestScore,
-    reasoning: `Search (${samples} samples) → ${label} (expected ${bestScore.toFixed(1)} pts)`,
+    expectedPoints: bestScore.expectedPoints,
+    pMakeContract: bestScore.pMakeContract,
+    reasoning: `Search (${samples} samples) → ${label} (${pct}% to make the ${bidAmt}-bid)`,
   };
 }
