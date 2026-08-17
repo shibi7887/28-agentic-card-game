@@ -69,7 +69,7 @@ function emitMove(
   fields: Record<string, unknown>,
 ) {
   moveSequence += 1;
-  log.debug(
+  log.info(
     '[thuruppu-seq] ' +
       JSON.stringify({
         seq: moveSequence,
