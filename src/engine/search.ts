@@ -94,7 +94,7 @@ function cardKey(c: Card): string {
  * The hidden trump card (Phase 1) is kept in the bidder's hand so the
  * engine's own rules keep working during the playout.
  */
-function sampleDeal(state: GameState, playerIndex: PlayerIndex, rng: () => number): GameState {
+export function sampleDeal(state: GameState, playerIndex: PlayerIndex, rng: () => number): GameState {
   const s = cloneState(state);
 
   const known = new Set<string>();
@@ -115,18 +115,49 @@ function sampleDeal(state: GameState, playerIndex: PlayerIndex, rng: () => numbe
   }
   const shuffled = shuffle(pool, rng);
 
-  let idx = 0;
-  for (let p = 0 as PlayerIndex; p < 4; p = (p + 1) as PlayerIndex) {
-    if (p === playerIndex) continue;
-    const n = s.hands[p].length;
-    if (p === bidder && keepTrumpInBidderHand) {
-      // Keep the hidden trump card in the bidder's hand; fill the rest randomly.
-      s.hands[p] = [hiddenTrump!, ...shuffled.slice(idx, idx + n - 1)];
-      idx += n - 1;
-    } else {
-      s.hands[p] = shuffled.slice(idx, idx + n);
-      idx += n;
+  // Infer voids the deciding player has observed: a player who played a card
+  // that doesn't match the led suit was void in that suit (they must follow
+  // suit otherwise). Honor these when filling hidden hands so sampled deals
+  // stay consistent with what the player actually knows — this lets the search
+  // value "lead my partner's void so they can cut."
+  const voidSuits: Suit[][] = [[], [], [], []];
+  for (const t of s.tricks) {
+    for (const tc of t.cards) {
+      if (tc.card.suit !== t.leadSuit) voidSuits[tc.player].push(t.leadSuit);
     }
+  }
+  if (s.currentTrick.leadSuit) {
+    for (const tc of s.currentTrick.cards) {
+      if (tc && tc.card.suit !== s.currentTrick.leadSuit) {
+        voidSuits[tc.player].push(s.currentTrick.leadSuit);
+      }
+    }
+  }
+
+  // Deal most-constrained players first (most observed voids), so scarce-suit
+  // cards go to the players who can still hold them.
+  const remaining = shuffled.slice();
+  const order = ([0, 1, 2, 3] as PlayerIndex[])
+    .filter((p) => p !== playerIndex)
+    .sort((a, b) => voidSuits[b].length - voidSuits[a].length);
+
+  for (const p of order) {
+    const keepTrump = p === bidder && keepTrumpInBidderHand;
+    const need = keepTrump ? s.hands[p].length - 1 : s.hands[p].length;
+    const forbidden = new Set(voidSuits[p]);
+    const dealt: Card[] = [];
+    // Prefer cards from allowed suits…
+    for (let i = remaining.length - 1; i >= 0 && dealt.length < need; i--) {
+      if (!forbidden.has(remaining[i].suit)) {
+        dealt.push(remaining[i]);
+        remaining.splice(i, 1);
+      }
+    }
+    // …but never strand a hand short (relax only if the constraints are infeasible).
+    while (dealt.length < need && remaining.length > 0) {
+      dealt.push(remaining.pop()!);
+    }
+    s.hands[p] = keepTrump ? [hiddenTrump!, ...dealt] : dealt;
   }
 
   return s;

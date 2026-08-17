@@ -1,8 +1,8 @@
 // Thuruppu Game Engine — Monte Carlo search tests
 import { describe, it, expect } from 'vitest';
-import { bestPlayDecision, evaluateMoves, mulberry32, roundWin, shouldCallTrump } from '../search';
+import { bestPlayDecision, evaluateMoves, mulberry32, roundWin, sampleDeal, shouldCallTrump } from '../search';
 import { getLegalMoves } from '../game';
-import type { Card, GameState, PlayerIndex, Suit } from '../types';
+import type { Card, GameState, PlayerIndex, Suit, Trick } from '../types';
 
 // Build a minimal, valid play-phase GameState with full control over hands.
 function makePlayState(overrides: Partial<GameState> = {}): GameState {
@@ -113,9 +113,9 @@ describe('Monte Carlo search', () => {
   });
 
   it('roundWin scores contract success from the deciding player perspective', () => {
-    const tricks = [
-      { cards: [], winner: 0 as PlayerIndex, points: 10 },
-      { cards: [], winner: 2 as PlayerIndex, points: 8 },
+    const tricks: Trick[] = [
+      { cards: [], winner: 0, points: 10, leadSuit: 'hearts' },
+      { cards: [], winner: 2, points: 8, leadSuit: 'hearts' },
     ];
     const fail = makePlayState({ bid: { amount: 20, bidder: 0 as PlayerIndex }, tricks });
     expect(roundWin(fail, 0)).toBe(0);
@@ -125,6 +125,40 @@ describe('Monte Carlo search', () => {
     expect(roundWin(win, 0)).toBe(1);
     expect(roundWin(win, 2)).toBe(1);
     expect(roundWin(win, 1)).toBe(0);
+  });
+
+  it('sampleDeal honors observed voids (never deals a void suit)', () => {
+    // P1 discarded 8♠ on a diamond lead → P1 is known void in diamonds.
+    const state = makePlayState({
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'hearts', rank: '7' }],
+        [{ suit: 'clubs', rank: '7' }, { suit: 'clubs', rank: '8' }],
+        [{ suit: 'spades', rank: '9' }, { suit: 'spades', rank: '10' }],
+        [{ suit: 'hearts', rank: 'K' }, { suit: 'hearts', rank: 'Q' }],
+      ],
+      tricks: [
+        {
+          cards: [
+            { card: { suit: 'diamonds', rank: '7' }, player: 0 },
+            { card: { suit: 'spades', rank: '8' }, player: 1 },
+            { card: { suit: 'diamonds', rank: 'K' }, player: 2 },
+            { card: { suit: 'diamonds', rank: 'A' }, player: 3 },
+          ],
+          winner: 2 as PlayerIndex,
+          points: 1,
+          leadSuit: 'diamonds',
+        },
+      ],
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+      trumpSuit: 'clubs',
+      trumpRevealed: true,
+    });
+
+    const rng = mulberry32(2024);
+    for (let i = 0; i < 200; i++) {
+      const deal = sampleDeal(state, 0, rng);
+      expect(deal.hands[1].some((c) => c.suit === 'diamonds')).toBe(false);
+    }
   });
 
   it('bestPlayDecision reports pMakeContract in [0,1] and expectedPoints', () => {

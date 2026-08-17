@@ -62,6 +62,7 @@ function cloneTricks(tricks: Trick[]): Trick[] {
     cards: [...t.cards],
     winner: t.winner,
     points: t.points,
+    leadSuit: t.leadSuit,
   }));
 }
 
@@ -634,7 +635,7 @@ function finishTrick(state: GameState): GameState {
     `cards=[${cards.map(c => `P${c.player}:${c.card.rank}${c.card.suit}`).join(', ')}]`
   );
 
-  const trick: Trick = { cards, winner, points };
+  const trick: Trick = { cards, winner, points, leadSuit };
   s.tricks = [...s.tricks, trick];
   s.currentTrick = { cards: [null, null, null, null], leadSuit: null };
   s.currentPlayer = winner;

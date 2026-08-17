@@ -20,6 +20,7 @@ export interface Trick {
   cards: TrickCard[];
   winner: PlayerIndex;
   points: number;
+  leadSuit: Suit;              // suit that was led for this trick
 }
 
 export interface BidRecord {

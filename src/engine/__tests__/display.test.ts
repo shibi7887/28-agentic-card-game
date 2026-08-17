@@ -14,6 +14,7 @@ describe('trickToDisplay', () => {
       ],
       winner: 2,
       points: 7,
+      leadSuit: 'hearts',
     };
 
     const slots = trickToDisplay(trick);
@@ -33,6 +34,7 @@ describe('trickToDisplay', () => {
       ],
       winner: 1,
       points: 0,
+      leadSuit: 'spades',
     };
 
     const slots = trickToDisplay(trick);
