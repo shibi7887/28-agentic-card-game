@@ -1,6 +1,7 @@
 // GET /api/game/[id]/state — get current game state for human player
 import { NextResponse } from 'next/server';
 import { getHumanView, getGame, runSingleAgentTurn } from '@/lib/game-store';
+import { log } from '@/lib/log';
 
 export async function GET(
   _request: Request,
@@ -21,7 +22,7 @@ export async function GET(
     try {
       agentAction = await runSingleAgentTurn(id);
     } catch (e) {
-      console.error('Agent turn failed:', (e as Error).message);
+      log.error('Agent turn failed:', (e as Error).message);
     }
   }
 

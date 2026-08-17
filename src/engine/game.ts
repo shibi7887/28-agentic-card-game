@@ -8,6 +8,7 @@ import {
   createDeck, shuffleDeck, sortHand, getCardPoints, getRankValue,
   getCardsOfSuit, getTeam, getNextPlayer, countPoints, isPointlessHand,
 } from './cards';
+import { log } from '../lib/log';
 
 // ─── Initial State ────────────────────────────────────────────────
 
@@ -627,7 +628,7 @@ function finishTrick(state: GameState): GameState {
   const winner = getTrickWinner(cards, leadSuit, s.trumpSuit, s.trumpRevealed);
   const points = cards.reduce((sum, tc) => sum + getCardPoints(tc.card), 0);
 
-  console.log(
+  log.debug(
     `[thuruppu-trick] trick #${s.trickNumber} winner=P${winner} leadSuit=${leadSuit} ` +
     `trump=${s.trumpSuit ?? 'none'} revealed=${s.trumpRevealed} points=${points} ` +
     `cards=[${cards.map(c => `P${c.player}:${c.card.rank}${c.card.suit}`).join(', ')}]`

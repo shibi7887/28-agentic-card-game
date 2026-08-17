@@ -8,6 +8,7 @@ import type { SearchResult, MoveEvaluation } from '@/engine/search';
 import { getAgentProfile } from '@/agents/profiles';
 import type { AgentProfile } from '@/agents/profiles';
 import { getAgentDecision, getExplanation } from '@/agents/pipeline';
+import { log } from '@/lib/log';
 
 // Early-concede is enabled by default; set ALLOW_CONCEDE=false to disable.
 const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
@@ -28,11 +29,11 @@ const SEARCH_SAMPLES = (() => {
 
 function safeSearch(state: GameState, player: PlayerIndex): SearchResult | null {
   try { return bestPlayDecision(state, player, { samples: SEARCH_SAMPLES }); }
-  catch (e) { console.warn('search failed, falling back to LLM:', (e as Error).message); return null; }
+  catch (e) { log.warn('search failed, falling back to LLM:', (e as Error).message); return null; }
 }
 function safeEvaluate(state: GameState, player: PlayerIndex): MoveEvaluation[] {
   try { return evaluateMoves(state, player, { samples: SEARCH_SAMPLES }); }
-  catch (e) { console.warn('evaluateMoves failed:', (e as Error).message); return []; }
+  catch (e) { log.warn('evaluateMoves failed:', (e as Error).message); return []; }
 }
 async function explainSafely(profile: AgentProfile, view: PlayerViewState, result: SearchResult): Promise<string> {
   try {
@@ -42,7 +43,7 @@ async function explainSafely(profile: AgentProfile, view: PlayerViewState, resul
       pMakeContract: result.pMakeContract,
     }, result.moves);
   } catch (e) {
-    console.warn('explain failed, using search reasoning:', (e as Error).message);
+    log.warn('explain failed, using search reasoning:', (e as Error).message);
     return result.reasoning;
   }
 }
@@ -68,7 +69,7 @@ function emitMove(
   fields: Record<string, unknown>,
 ) {
   moveSequence += 1;
-  console.log(
+  log.debug(
     '[thuruppu-seq] ' +
       JSON.stringify({
         seq: moveSequence,

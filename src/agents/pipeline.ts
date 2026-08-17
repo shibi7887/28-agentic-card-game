@@ -6,6 +6,7 @@ import type { AgentProfile } from './profiles';
 import { callLLM } from './providers';
 import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt, buildExplainPrompt } from './prompts';
 import { evaluateOpeningHand, evaluateRebidHand, chooseMaxLegalBid } from '@/engine/bidding';
+import { log } from '@/lib/log';
 
 interface AgentDecision {
   action: string;
@@ -32,7 +33,7 @@ function clampOpeningBid(
 
   const capped = chooseMaxLegalBid(state.legalMoves, maxBid);
   if (capped !== null) {
-    console.warn(`Agent ${name} opening bid ${proposed.amount} clamped to ${capped} (max ${maxBid}).`);
+    log.warn(`Agent ${name} opening bid ${proposed.amount} clamped to ${capped} (max ${maxBid}).`);
     return {
       move: { type: 'bid', amount: capped },
       reasoning: `Opening bid capped at ${maxBid} with only 4 cards; bidding ${capped}.`,
@@ -41,7 +42,7 @@ function clampOpeningBid(
 
   const pass = state.legalMoves.find((m) => m.type === 'pass');
   if (pass) {
-    console.warn(`Agent ${name} opening bid ${proposed.amount} exceeds cap ${maxBid} — passing.`);
+    log.warn(`Agent ${name} opening bid ${proposed.amount} exceeds cap ${maxBid} — passing.`);
     return { move: pass, reasoning: `Minimum required bid exceeds my hand's max opening bid (${maxBid}); passing.` };
   }
 
@@ -66,7 +67,7 @@ function clampRebid(
 
   const capped = chooseMaxLegalBid(state.legalMoves, maxRebid);
   if (capped !== null) {
-    console.warn(`Agent ${name} rebid ${proposed.amount} clamped to ${capped} (max ${maxRebid}).`);
+    log.warn(`Agent ${name} rebid ${proposed.amount} clamped to ${capped} (max ${maxRebid}).`);
     return {
       move: { type: 'bid', amount: capped },
       reasoning: `Rebid capped at ${maxRebid} — hand does not support ${proposed.amount}; bidding ${capped}.`,
@@ -75,7 +76,7 @@ function clampRebid(
 
   const pass = state.legalMoves.find((m) => m.type === 'pass');
   if (pass) {
-    console.warn(`Agent ${name} rebid ${proposed.amount} exceeds cap ${maxRebid} — passing.`);
+    log.warn(`Agent ${name} rebid ${proposed.amount} exceeds cap ${maxRebid} — passing.`);
     return { move: pass, reasoning: `Hand supports at most a ${maxRebid} rebid — passing.` };
   }
 
@@ -160,14 +161,14 @@ export async function getAgentDecision(
 
       // Valid JSON but action didn't match any legal move — no retry, go to fallback
       const legalTypes = [...new Set(legalMoves.map(m => m.type))];
-      console.warn(
+      log.warn(
         `Agent ${profile.name} action "${parsed.action}" not legal. Legal: [${legalTypes.join(', ')}]. Using fallback.`
       );
       break;
     } catch (error) {
       // JSON parse error or network issue — retry once
       lastParseError = (error as Error).message;
-      console.warn(`Agent ${profile.name} attempt ${attempt} failed:`, lastParseError);
+      log.warn(`Agent ${profile.name} attempt ${attempt} failed:`, lastParseError);
       if (attempt < 2) {
         messages.push({
           role: 'user' as const,
@@ -231,26 +232,26 @@ function smartFallback(
       // Every legal bid exceeds the cap — prefer passing over an overbid.
       const passMove = legalMoves.find(m => m.type === 'pass');
       if (passMove) {
-        console.warn(`Agent ${name} using fallback pass (min bid ${minBid} exceeds cap ${cap})`);
+        log.warn(`Agent ${name} using fallback pass (min bid ${minBid} exceeds cap ${cap})`);
         return { move: passMove, reasoning: `Fallback: pass (hand max ${cap})` };
       }
     }
     // Pick the LOWEST legal bid (conservative — avoid reckless overbids).
     const low = bidMoves[0];
-    console.warn(`Agent ${name} using fallback bid: ${low.amount}`);
+    log.warn(`Agent ${name} using fallback bid: ${low.amount}`);
     return { move: low, reasoning: 'Fallback: conservative bid' };
   }
 
   // Prefer passing over nothing when no bid is possible
   const passMove = legalMoves.find(m => m.type === 'pass');
   if (passMove) {
-    console.warn(`Agent ${name} using fallback pass`);
+    log.warn(`Agent ${name} using fallback pass`);
     return { move: passMove, reasoning: 'Fallback: pass' };
   }
 
   // Trump selection: prefer keeping the current trump if changing is optional.
   if (legalMoves.some(m => m.type === 'keepTrump')) {
-    console.warn(`Agent ${name} using fallback keepTrump`);
+    log.warn(`Agent ${name} using fallback keepTrump`);
     return { move: { type: 'keepTrump' } as LegalMove, reasoning: 'Fallback: keep trump' };
   }
 
@@ -283,12 +284,12 @@ function smartFallback(
       }
     }
 
-    console.warn(`Agent ${name} using fallback play: ${chosen.rank}${chosen.suit}`);
+    log.warn(`Agent ${name} using fallback play: ${chosen.rank}${chosen.suit}`);
     return { move: { type: 'playCard', card: chosen } as LegalMove, reasoning: 'Fallback: discard lowest value' };
   }
 
   // Last resort: first legal move
-  console.warn(`Agent ${name} using generic fallback: ${legalMoves[0].type}`);
+  log.warn(`Agent ${name} using generic fallback: ${legalMoves[0].type}`);
   return { move: legalMoves[0], reasoning: 'Fallback: generic' };
 }
 
