@@ -1,8 +1,9 @@
 // Prompt templates for AI agent decisions
 
-import type { PlayerViewState, Card } from "@/engine/types";
+import type { PlayerViewState, Card, TrickCard } from "@/engine/types";
 import type { MoveEvaluation } from "@/engine/search";
 import { formatCard, createDeck } from "@/engine/cards";
+import { getTrickWinner } from "@/engine/game";
 import { evaluateOpeningHand, evaluateRebidHand } from "@/engine/bidding";
 import type { AgentProfile } from "./profiles";
 
@@ -111,6 +112,11 @@ STRATEGY:
 - Do not waste trump early: if your partner already won with a trump, avoid leading another trump unless fishing for opponents' remaining high trumps.
 - Flush opponent voids: if you notice an opponent is out of a suit, keep leading that suit to force them to waste trumps or bleed points.
 - Lead partner's void: if your partner discarded off-suit (they could not follow that led suit), they are void in it. Lead that suit next so they can cut with trump and win the trick.
+- Opening lead (strong hand): with a strong suit, lead an Ace early to force opponents to burn their low tracking cards while your team locks the lead.
+- Opening lead (weak hand): with a weak hand, lead an off-suit 7 or 8 to force opponents to play power cards, protecting your few good cards for the endgame.
+- Lead safety: never lead a 9 (or J) while a higher card of that suit is still unaccounted for — if the J of your suit is still out, your 9 will be captured. Lead a low filler (7/8/K/Q) instead and save your high cards until their beaters are drawn out.
+- Thani (24+ bid) partner duty: if your partner bid 24+, stay out of their way — play your lowest cards and do not try to win tricks.
+- Thani (24+ bid) defender duty: if an opponent bid 24+, save your single highest card to break just one trick — breaking one trick collapses their solo bid.
 
 Respond with valid JSON only.`;
 }
@@ -193,41 +199,43 @@ Consider your partner's and opponents' likely hands.`;
     )
     .reduce((sum, t) => sum + t.points, 0);
 
+  const currentLeadSuit = state.currentTrick.leadSuit;
+  const placedCards = state.currentTrick.cards.filter((c): c is TrickCard => c !== null);
+
+  // Correctly determine the current trick winner (handles trump in Phase 2).
+  let winningCard: TrickCard | null = null;
+  if (currentLeadSuit && placedCards.length > 0) {
+    const winnerIdx = getTrickWinner(placedCards, currentLeadSuit, state.trumpSuit, state.trumpRevealed);
+    winningCard = placedCards.find((c) => c.player === winnerIdx) ?? null;
+  }
+
+  const trickWinnerInfo = winningCard
+    ? winningCard.player % 2 === state.playerIndex % 2
+      ? `YOUR TEAM is currently winning this trick (Player ${winningCard.player} with ${formatCard(winningCard.card)}).`
+      : `OPPONENT TEAM is currently winning this trick (Player ${winningCard.player} with ${formatCard(winningCard.card)}).`
+    : "";
+
+  // Annotate each legal card with whether it can beat the current winner, so
+  // the LLM never misjudges card strength (e.g. 9 does NOT beat J).
   const legalMoves = state.legalMoves
     .filter((m) => m.type === "playCard")
-    .map((m) => formatCard((m as any).card));
+    .map((m) => {
+      const card = (m as { type: "playCard"; card: Card }).card;
+      const label = formatCard(card);
+      if (!winningCard || !currentLeadSuit || winningCard.player === state.playerIndex) return label;
+      const beats =
+        getTrickWinner(
+          [...placedCards, { card, player: state.playerIndex }],
+          currentLeadSuit,
+          state.trumpSuit,
+          state.trumpRevealed,
+        ) === state.playerIndex;
+      return beats
+        ? `${label} (beats ${formatCard(winningCard.card)})`
+        : `${label} (loses to ${formatCard(winningCard.card)})`;
+    });
 
   const canCallTrump = state.legalMoves.some((m) => m.type === "callTrump");
-
-  // Determine current trick winner and their team
-  let trickWinnerInfo = "";
-  const placedCards = state.currentTrick.cards.filter((c) => c !== null);
-  if (placedCards.length > 0 && state.currentTrick.leadSuit) {
-    const leadSuitCards = placedCards.filter(
-      (c) => c!.card.suit === state.currentTrick.leadSuit,
-    );
-    if (leadSuitCards.length > 0) {
-      const best = leadSuitCards.reduce((best, c) => {
-        const rankOrder: Record<string, number> = {
-          J: 7,
-          "9": 6,
-          A: 5,
-          "10": 4,
-          K: 3,
-          Q: 2,
-          "8": 1,
-          "7": 0,
-        };
-        return rankOrder[c!.card.rank] > rankOrder[best!.card.rank] ? c : best;
-      });
-      const winnerTeam = best!.player % 2;
-      const myTeam = state.playerIndex % 2;
-      trickWinnerInfo =
-        winnerTeam === myTeam
-          ? `YOUR TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`
-          : `OPPONENT TEAM is currently winning this trick (Player ${best!.player} leads with ${formatCard(best!.card)}).`;
-    }
-  }
 
   const trickPoints = placedCards.reduce(
     (sum, c) => sum + (c ? pointValue(c.card.rank) : 0),
