@@ -216,7 +216,7 @@ The bidding team's game points change by the bracket value; the defending team's
 
 Agent reasoning is visible in the **Table Talk** section below the game table.
 
-### AI decision architecture (hybrid search + LLM)
+### AI decision architecture (search + LLM hybrid)
 
 The AI uses a three-tier split, not pure LLM:
 
@@ -226,15 +226,35 @@ The AI uses a three-tier split, not pure LLM:
 | **Monte-Carlo search** | Card play (which card to play, when to call trump) | `src/engine/search.ts` |
 | **LLM** | Judgment calls: bidding, trump selection, rebid | `src/agents/pipeline.ts` |
 
-Card play defaults to **search, not the LLM**: the engine samples many possible distributions of the hidden cards, greedily plays out each one, and picks the card with the highest probability of making the bid contract. This is faster and more reliable than an LLM for the combinatorial core, and it never produces an illegal move. The LLM handles bidding/trump/rebid, where judgment and table psychology matter — and via `AGENT_PLAY_MODE=hybrid` it can advise card play using the search's per-move estimates, or explain search-chosen moves with `AGENT_EXPLAIN=true`.
+#### How the search works
 
-Tune it via env:
+The Monte-Carlo search handles the combinatorial core that an LLM is bad at. For each legal card it samples many possible distributions of the hidden cards, greedily plays out each deal to the end, and scores the move by **the probability the deciding player's team makes the bid contract** (`P(make bid)`), not just expected card points. It plays the highest-scoring card, so it never produces an illegal move and never hallucinates.
+
+Two details worth knowing:
+
+- **Contract-aware objective** — moves are scored by whether they lead to making `bid.amount`. This correctly avoids wasting trump on early low-value tricks.
+- **Void-aware sampling** — the search honors observed voids (a player who discarded off-suit was void in the led suit), so partnership signals like "lead my partner's void so they can cut" are valued correctly.
+
+#### Card-play modes
+
+`AGENT_PLAY_MODE` controls who decides card play. Bidding, trump selection, and rebid always go through the LLM.
+
+| Mode | Card-play decision | Table Talk reasoning | Cost / reliability |
+|------|-------------------|----------------------|--------------------|
+| `search` *(default)* | Monte-Carlo search | Deterministic: `Search (150 samples) → play J♠ (63% to make the 20-bid)` | Fast, no LLM call, never hallucinates |
+| `hybrid` | LLM, guided by a `SIMULATED OUTCOME TABLE` of the search's per-move estimates | LLM-written | One LLM call per play; can override a strong move |
+| `llm` | LLM only (no simulation) | LLM-written | One LLM call per play; most prone to hallucination |
+
+With `AGENT_EXPLAIN=true`, the `search` mode's Table Talk is rewritten by the LLM in the agent's persona — the move still comes from the search, only the wording is LLM-generated.
+
+#### Tune it via env
 
 ```env
 # AGENT_PLAY_MODE=search   # search (default) | hybrid (LLM decides w/ search table) | llm
 # AGENT_USE_SEARCH=false   # legacy alias for AGENT_PLAY_MODE=llm
 # SEARCH_SAMPLES=150       # hidden-deal samples per move (higher = stronger, slower)
 # AGENT_EXPLAIN=true       # LLM explains search-chosen moves (Table Talk); off by default
+# LOG_LEVEL=info           # silent | error | warn | info | debug (debug shows trick traces)
 ```
 
 ## Architecture
