@@ -110,6 +110,7 @@ STRATEGY:
 - Trump flush: if you hold both J and 9 of trump, after trump is revealed consider leading the J to strip opponents of their trumps and protect your team's high cards.
 - Do not waste trump early: if your partner already won with a trump, avoid leading another trump unless fishing for opponents' remaining high trumps.
 - Flush opponent voids: if you notice an opponent is out of a suit, keep leading that suit to force them to waste trumps or bleed points.
+- Lead partner's void: if your partner discarded off-suit (they could not follow that led suit), they are void in it. Lead that suit next so they can cut with trump and win the trick.
 
 Respond with valid JSON only.`;
 }
