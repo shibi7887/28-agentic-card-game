@@ -247,7 +247,7 @@ Consider your partner's and opponents' likely hands.`;
     ? `SIMULATED OUTCOME TABLE (Monte-Carlo estimates for your legal moves):
 ${table.map((m) => `- ${m.label}: ${Math.round(m.pMakeContract * 100)}% to make the bid (expected ${m.expectedPoints.toFixed(1)} pts)`).join('\n')}
 
-Use these as guidance. You may deviate if you see a strategic reason.`
+CRITICAL — trust the simulation. The table already applies the exact card ranking (J is HIGHEST, then 9, A, 10, K, Q, 8, 7 — note 9 does NOT beat J). A card beats another only if its rank is higher, or it is trump in Phase 2. Do not override the top move merely because you disagree about card strength; deviate only for a clear strategic reason (conserving a card, partner coordination).`
     : '';
 
   const user = `CURRENT GAME STATE:

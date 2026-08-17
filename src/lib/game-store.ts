@@ -1,7 +1,7 @@
 // Server-side game state store — simple in-memory Map
 // In production, replace with Redis or database
 
-import type { GameState, PlayerIndex, PlayerViewState } from '@/engine/types';
+import type { GameState, LegalMove, PlayerIndex, PlayerViewState } from '@/engine/types';
 import { createGame, applyMove, getPlayerView, concedeGame, resolveRoundEarly, getRoundDecided } from '@/engine/game';
 import { bestPlayDecision, evaluateMoves } from '@/engine/search';
 import type { SearchResult, MoveEvaluation } from '@/engine/search';
@@ -26,6 +26,29 @@ const SEARCH_SAMPLES = (() => {
   const n = parseInt(process.env.SEARCH_SAMPLES || '', 10);
   return Number.isNaN(n) || n <= 0 ? 150 : n;
 })();
+
+// In hybrid mode, restrict the LLM's card choices to the top-N moves by
+// P(make contract). This prevents the LLM from overriding the search with a
+// clearly-inferior card (e.g. misreading the J-highest ranking).
+const HYBRID_TOP_N = (() => {
+  const n = parseInt(process.env.HYBRID_TOP_N || '', 10);
+  return Number.isNaN(n) || n <= 0 ? 3 : n;
+})();
+
+function legalMoveKey(m: LegalMove): string {
+  switch (m.type) {
+    case 'playCard':
+    case 'selectTrump':
+      return `${m.type}:${m.card.suit}:${m.card.rank}`;
+    default:
+      return m.type;
+  }
+}
+
+/** Top-N moves by P(make contract). */
+function topMoves(table: MoveEvaluation[], n: number): MoveEvaluation[] {
+  return table.slice().sort((a, b) => b.pMakeContract - a.pMakeContract).slice(0, n);
+}
 
 function safeSearch(state: GameState, player: PlayerIndex): SearchResult | null {
   try { return bestPlayDecision(state, player, { samples: SEARCH_SAMPLES }); }
@@ -257,7 +280,19 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
       }
     } else if (isPlayPhase && PLAY_MODE === 'hybrid') {
       const table = safeEvaluate(game.state, player);
-      ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player), table));
+      const view = getPlayerView(game.state, player);
+      // Restrict the LLM to the top-N search moves so it can't override with a
+      // clearly-inferior card. Non-card moves (e.g. showPair) stay legal.
+      const top = topMoves(table, HYBRID_TOP_N);
+      if (top.length > 0 && top.length < table.length) {
+        const allowed = new Set(top.map((m) => legalMoveKey(m.move)));
+        view.legalMoves = view.legalMoves.filter((m) =>
+          m.type === 'playCard' || m.type === 'callTrump'
+            ? allowed.has(legalMoveKey(m))
+            : true,
+        );
+      }
+      ({ move, reasoning } = await getAgentDecision(profile, view, top));
     } else {
       ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
     }
