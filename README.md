@@ -2,9 +2,8 @@
 
 **ഇരുപത്തിയെട്ട് · തുറുപ്പ്**
 
-A full-stack web implementation of the classic Kerala trick-taking card game **Twenty-eight** (Thuruppu/Irupathiyettu), playable against AI opponents powered by **LLM agents** with distinct personalities and strategies. The AI combines a deterministic **Monte-Carlo search** engine (legal-move filtering, contract-aware move scoring, void-aware sampling) with LLM judgment calls for bidding, trump selection, and rebids — so it never makes an illegal move and never hallucinates.
+Kerala trick-taking card game **Twenty-eight** (Thuruppu/Irupathiyettu), playable against AI opponents powered by **LLM agents** with distinct personalities and strategies. LLM judgment calls for bidding, trump selection, and rebids — so it never makes an illegal move and never hallucinates.
 
-**Keywords:** Twenty-eight · 28 card game · Thuruppu · Irupathiyettu · Kerala card game · trick-taking game · card game AI · LLM agents · AI agents · Monte-Carlo search · game AI · Next.js · TypeScript · React · DeepSeek · OpenRouter · OpenAI · Ollama · SGLang · vLLM
 
 ## Quick Start
 
