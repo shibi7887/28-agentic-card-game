@@ -84,7 +84,6 @@ export default function GameTable({
   }, [view.roundResult, view.winner]);
 
   const prevTrickCount = useRef(view.tricks.length);
-  const prevCurTrick = useRef<(TrickCard | null)[]>(view.currentTrick.cards);
   const prevTrumpRevealed = useRef(view.trumpRevealed);
 
   useEffect(() => {
@@ -96,7 +95,6 @@ export default function GameTable({
       setDisplayCards(EMPTY_TRICK);
       setWinningPlayer(null);
       prevTrickCount.current = 0;
-      prevCurTrick.current = [null, null, null, null];
       return;
     }
 
@@ -115,23 +113,18 @@ export default function GameTable({
     }
 
     if (trickCompleted) {
-      // Reconstruct the completed trick: cards that were on the table before,
-      // plus this cycle's plays that do NOT belong to the next (in-progress) trick.
-      const filled: (TrickCard | null)[] = [...prevCurTrick.current];
-      for (const p of latestBatch) {
-        const inNextTrick = view.currentTrick.cards.some(
-          c => c !== null && c.card.suit === p.card.suit && c.card.rank === p.card.rank,
-        );
-        if (!inNextTrick && filled[p.player] === null) {
-          filled[p.player] = { card: p.card, player: p.player };
-        }
+      // Reconstruct the completed trick from the full trick record so all four
+      // cards — including the human's — stay on the table together, then clear
+      // together before the next trick begins.
+      const completedTrick = view.tricks[newCount - 1];
+      if (completedTrick) {
+        setDisplayCards(trickToDisplay(completedTrick));
+        setWinningPlayer(completedTrick.winner);
       }
-      setDisplayCards(filled);
-      setWinningPlayer(view.tricks[newCount - 1].winner);
 
       const isLastTrick = newCount === 8;
-      // Hold completed trick cards longer so the player can count cards.
-      const holdTime = isLastTrick ? 5000 : 5000;
+      // Hold completed trick cards so the player can count them.
+      const holdTime = 5000;
 
       const t = setTimeout(() => {
         if (!isLastTrick) {
@@ -141,7 +134,6 @@ export default function GameTable({
         setWinningPlayer(null);
       }, holdTime);
       prevTrickCount.current = newCount;
-      prevCurTrick.current = [...view.currentTrick.cards];
       return () => clearTimeout(t);
     }
 
@@ -155,7 +147,6 @@ export default function GameTable({
     setDisplayCards(merged);
     setWinningPlayer(null);
     prevTrickCount.current = newCount;
-    prevCurTrick.current = [...view.currentTrick.cards];
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, batchId]);

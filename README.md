@@ -310,4 +310,4 @@ src/
 - For Anthropic Claude models, use OpenRouter (`anthropic/claude-3-haiku` etc.) — direct Anthropic API is not supported.
 - The game seat layout: you (South), Raman (North, partner), Krishnan (East, opponent), Kunjappu (West, opponent).
 - AI opponents use card-counting memory (played cards, points won, remaining cards) scoped to the current round only.
-- The reference rules were cross-checked against the Feathersoft "28" game and [pagat.com](https://www.pagat.com/jass/28.html).
+- The reference rules were cross-checked against the Wikipedia "28" game and [pagat.com](https://www.pagat.com/jass/28.html).
