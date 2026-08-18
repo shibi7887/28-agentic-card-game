@@ -1,8 +1,8 @@
 // Prompt templates for AI agent decisions
 
-import type { PlayerViewState, Card, TrickCard } from "@/engine/types";
+import type { PlayerViewState, Card, TrickCard, Suit } from "@/engine/types";
 import type { MoveEvaluation } from "@/engine/search";
-import { formatCard, createDeck } from "@/engine/cards";
+import { formatCard, createDeck, getCardPoints, getRankValue } from "@/engine/cards";
 import { getTrickWinner } from "@/engine/game";
 import { evaluateOpeningHand, evaluateRebidHand } from "@/engine/bidding";
 import type { AgentProfile } from "./profiles";
@@ -38,17 +38,9 @@ function buildCardMemory(state: PlayerViewState): string {
   );
 
   // Remaining (unaccounted) cards: not yet played, not in my own hand
-  const playedSet = new Set(played.map((c) => `${c.suit}${c.rank}`));
-  const handSet = new Set(state.hand.map((c) => `${c.suit}${c.rank}`));
-  const remainingBySuit: Record<string, string[]> = {};
-  for (const c of createDeck()) {
-    const key = `${c.suit}${c.rank}`;
-    if (!playedSet.has(key) && !handSet.has(key)) {
-      (remainingBySuit[c.suit] ??= []).push(formatCard(c));
-    }
-  }
+  const remainingBySuit = getRemainingBySuit(state);
   const remaining = ["hearts", "diamonds", "clubs", "spades"].map(
-    (s) => `${s}: ${(remainingBySuit[s] ?? []).join(", ") || "(none)"}`,
+    (s) => `${s}: ${(remainingBySuit[s as Suit] ?? []).map(formatCard).join(", ") || "(none)"}`,
   );
 
   const myTeam = state.teamIndex;
@@ -65,6 +57,35 @@ POINTS WON SO FAR this round:
 
 CARDS STILL UNACCOUNTED (in other players' hands or not yet played):
 ${remaining.join("\n")}`;
+}
+
+/** Remaining (unaccounted) cards per suit: not yet played and not in my hand. */
+function getRemainingBySuit(state: PlayerViewState): Record<Suit, Card[]> {
+  const played: Card[] = [];
+  for (const t of state.tricks) {
+    for (const tc of t.cards) played.push(tc.card);
+  }
+  for (const c of state.currentTrick.cards) {
+    if (c) played.push(c.card);
+  }
+
+  const playedSet = new Set(played.map((c) => `${c.suit}${c.rank}`));
+  const handSet = new Set(state.hand.map((c) => `${c.suit}${c.rank}`));
+  const remainingBySuit: Record<Suit, Card[]> = { hearts: [], diamonds: [], clubs: [], spades: [] };
+  for (const c of createDeck()) {
+    const key = `${c.suit}${c.rank}`;
+    if (!playedSet.has(key) && !handSet.has(key)) {
+      remainingBySuit[c.suit].push(c);
+    }
+  }
+  return remainingBySuit;
+}
+
+/** Higher cards of `card.suit` still unaccounted for (could still beat `card`). */
+function getHigherUnaccounted(card: Card, state: PlayerViewState): Card[] {
+  return (getRemainingBySuit(state)[card.suit] ?? []).filter(
+    (c) => getRankValue(c.rank) > getRankValue(card.rank),
+  );
 }
 
 function buildGameRulesContext(): string {
@@ -115,6 +136,7 @@ STRATEGY:
 - Opening lead (strong hand): with a strong suit, lead an Ace early to force opponents to burn their low tracking cards while your team locks the lead.
 - Opening lead (weak hand): with a weak hand, lead an off-suit 7 or 8 to force opponents to play power cards, protecting your few good cards for the endgame.
 - Lead safety: never lead a 9 (or J) while a higher card of that suit is still unaccounted for — if the J of your suit is still out, your 9 will be captured. Lead a low filler (7/8/K/Q) instead and save your high cards until their beaters are drawn out.
+- Honors (20–23 bid) partner duty: if your partner bid 20–23, treat every point as precious. When the OPPONENT team is winning the current trick, do NOT throw point cards (J, 9, A, 10) into it — play your lowest card and let them win cheaply. Only dump point cards onto a trick YOUR team is already winning (fattening your partner).
 - Thani (24+ bid) partner duty: if your partner bid 24+, stay out of their way — play your lowest cards and do not try to win tricks.
 - Thani (24+ bid) defender duty: if an opponent bid 24+, save your single highest card to break just one trick — breaking one trick collapses their solo bid.
 
@@ -215,8 +237,25 @@ Consider your partner's and opponents' likely hands.`;
       : `OPPONENT TEAM is currently winning this trick (Player ${winningCard.player} with ${formatCard(winningCard.card)}).`
     : "";
 
+  // Partner duty: dynamic, state-aware hint so the agent knows when its partner
+  // holds an Honors (20–23) bid and must not leak points into opponent tricks.
+  const partner = (state.playerIndex + 2) % 4;
+  const partnerBid =
+    state.bid?.bidder === partner && state.bid.amount >= 20 && state.bid.amount <= 23
+      ? state.bid.amount
+      : null;
+  const opponentsWinning = winningCard && winningCard.player % 2 !== state.playerIndex % 2;
+  const partnerDutyHint =
+    partnerBid !== null && placedCards.length > 0
+      ? opponentsWinning
+        ? `\nPARTNER DUTY: your partner (Player ${partner}) bid ${partnerBid} (Honors). The OPPONENT team is winning this trick. Do NOT throw point cards (J/9/A/10) into it — play your lowest card and give it up cheaply.`
+        : `\nPARTNER DUTY: your partner (Player ${partner}) bid ${partnerBid} (Honors). YOUR team is winning this trick — it is safe to fatten it with a point card if you cannot follow suit.`
+      : "";
+
   // Annotate each legal card with whether it can beat the current winner, so
-  // the LLM never misjudges card strength (e.g. 9 does NOT beat J).
+  // the LLM never misjudges card strength (e.g. 9 does NOT beat J). Also warn
+  // when a higher card of that suit is STILL UNACCOUNTED — playing a point
+  // card that an unplayed J/9/A can capture just gifts the points away.
   const legalMoves = state.legalMoves
     .filter((m) => m.type === "playCard")
     .map((m) => {
@@ -230,8 +269,11 @@ Consider your partner's and opponents' likely hands.`;
           state.trumpSuit,
           state.trumpRevealed,
         ) === state.playerIndex;
+      const higher = getHigherUnaccounted(card, state);
+      const higherWarning =
+        higher.length > 0 ? ` — BUT ${higher.map(formatCard).join(", ")} still unaccounted; if any opponent holds it, this card will be captured.` : "";
       return beats
-        ? `${label} (beats ${formatCard(winningCard.card)})`
+        ? `${label} (beats ${formatCard(winningCard.card)}${higherWarning})`
         : `${label} (loses to ${formatCard(winningCard.card)})`;
     });
 
@@ -264,6 +306,7 @@ ${trumpStatus}
 ${leadSuit}
 Trick so far: ${trickCards || "(empty)"}
 ${trickWinnerInfo}
+${partnerDutyHint}
 Trick number: ${state.trickNumber || "?"} of 8
 Bid: ${state.bid?.amount || "?"} by Player ${state.bid?.bidder || "?"}
 Points your team has won this round: ${tricksWon}
