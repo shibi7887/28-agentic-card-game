@@ -2,7 +2,7 @@
 
 **ഇരുപത്തിയെട്ട് · തുറുപ്പ്**
 
-Kerala trick-taking card game **Twenty-eight** (Thuruppu/Irupathiyettu), playable against AI opponents powered by **LLM agents** with distinct personalities and strategies. LLM judgment calls for bidding, trump selection, and rebids — so it never makes an illegal move and never hallucinates.
+Kerala trick-taking card game **Twenty-eight** (Thuruppu/Irupathiyettu), playable against AI opponents powered by **LLM agents** with distinct personalities and strategies. LLM judgment calls for bidding, trump selection, and gameplay.
 
 
 ## Quick Start
