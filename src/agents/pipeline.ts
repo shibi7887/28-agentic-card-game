@@ -7,6 +7,7 @@ import { callLLM } from './providers';
 import { buildBiddingPrompt, buildPlayPrompt, buildTrumpSelectionPrompt, buildRebiddingPrompt, buildExplainPrompt } from './prompts';
 import { evaluateOpeningHand, evaluateRebidHand, chooseMaxLegalBid } from '@/engine/bidding';
 import { log } from '@/lib/log';
+import { describeMove, withSpan } from '@/lib/tracing';
 
 interface AgentDecision {
   action: string;
@@ -122,65 +123,86 @@ export async function getAgentDecision(
     { role: 'user' as const, content: user },
   ];
 
-  // Try up to 2 times only on JSON parse failures.
-  // Valid JSON with unmatched action goes straight to fallback.
-  let lastParseError: string | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const response = await callLLM(
-        profile.provider,
-        profile.model,
-        messages,
-        profile.temperature,
-        { type: 'json_object' },
-      );
+  return withSpan(
+    'agent.decision',
+    {
+      'agent.name': profile.name,
+      'agent.profile_id': profile.id,
+      'game.phase': phase,
+      'llm.provider': profile.provider,
+      'llm.model': profile.model,
+      'llm.temperature': profile.temperature,
+    },
+    async (span) => {
+      // Try up to 2 times only on JSON parse failures.
+      // Valid JSON with unmatched action goes straight to fallback.
+      let lastParseError: string | null = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await callLLM(
+            profile.provider,
+            profile.model,
+            messages,
+            profile.temperature,
+            { type: 'json_object' },
+            attempt,
+          );
 
-      const cleaned = stripMarkdownFences(response);
-      const parsed: AgentDecision = JSON.parse(cleaned);
-      const move = parseDecision(parsed, legalMoves);
+          const cleaned = stripMarkdownFences(response);
+          const parsed: AgentDecision = JSON.parse(cleaned);
+          const move = parseDecision(parsed, legalMoves);
 
-      if (move) {
-        // Enforce the conservative opening-bid cap in the 4-card bidding phase.
-        if (state.phase === 'bidding' && move.type === 'bid') {
-          const clamped = clampOpeningBid(profile.name, state, move);
-          return {
-            move: clamped.move,
-            reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
-          };
+          if (move) {
+            span.setAttribute('agent.move', describeMove(move));
+            // Enforce the conservative opening-bid cap in the 4-card bidding phase.
+            if (state.phase === 'bidding' && move.type === 'bid') {
+              const clamped = clampOpeningBid(profile.name, state, move);
+              span.setAttribute('agent.move', describeMove(clamped.move));
+              return {
+                move: clamped.move,
+                reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
+              };
+            }
+            // Enforce the deterministic rebid cap in the 8-card rebid phase.
+            if (state.phase === 'rebidding' && move.type === 'bid') {
+              const clamped = clampRebid(profile.name, state, move);
+              span.setAttribute('agent.move', describeMove(clamped.move));
+              return {
+                move: clamped.move,
+                reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
+              };
+            }
+            return { move, reasoning: parsed.reasoning || 'No reasoning provided' };
+          }
+
+          // Valid JSON but action didn't match any legal move — no retry, go to fallback
+          const legalTypes = [...new Set(legalMoves.map(m => m.type))];
+          log.warn(
+            `Agent ${profile.name} action "${parsed.action}" not legal. Legal: [${legalTypes.join(', ')}]. Using fallback.`
+          );
+          break;
+        } catch (error) {
+          // JSON parse error or network issue — retry once
+          lastParseError = (error as Error).message;
+          log.warn(`Agent ${profile.name} attempt ${attempt} failed:`, lastParseError);
+          if (attempt < 2) {
+            messages.push({
+              role: 'user' as const,
+              content: 'Your previous response was not valid JSON or had an error. Respond with ONLY valid JSON matching one of the allowed actions. No markdown, no extra text.',
+            });
+            continue;
+          }
         }
-        // Enforce the deterministic rebid cap in the 8-card rebid phase.
-        if (state.phase === 'rebidding' && move.type === 'bid') {
-          const clamped = clampRebid(profile.name, state, move);
-          return {
-            move: clamped.move,
-            reasoning: clamped.reasoning || parsed.reasoning || 'No reasoning provided',
-          };
-        }
-        return { move, reasoning: parsed.reasoning || 'No reasoning provided' };
       }
 
-      // Valid JSON but action didn't match any legal move — no retry, go to fallback
-      const legalTypes = [...new Set(legalMoves.map(m => m.type))];
-      log.warn(
-        `Agent ${profile.name} action "${parsed.action}" not legal. Legal: [${legalTypes.join(', ')}]. Using fallback.`
-      );
-      break;
-    } catch (error) {
-      // JSON parse error or network issue — retry once
-      lastParseError = (error as Error).message;
-      log.warn(`Agent ${profile.name} attempt ${attempt} failed:`, lastParseError);
-      if (attempt < 2) {
-        messages.push({
-          role: 'user' as const,
-          content: 'Your previous response was not valid JSON or had an error. Respond with ONLY valid JSON matching one of the allowed actions. No markdown, no extra text.',
-        });
-        continue;
-      }
+      // All retries exhausted — use smart fallback
+      span.setAttribute('agent.fallback_used', true);
+      if (lastParseError) span.setAttribute('llm.parse_error', lastParseError);
+      const fallback = smartFallback(profile.name, state, legalMoves);
+      span.setAttribute('agent.move', describeMove(fallback.move));
+      return fallback;
     }
-  }
-
-  // All retries exhausted — use smart fallback
-  return smartFallback(profile.name, state, legalMoves);
+  );
 }
 
 /** Generate a natural-language explanation for an already-chosen (search) move. */
@@ -191,16 +213,29 @@ export async function getExplanation(
   table: MoveEvaluation[],
 ): Promise<string> {
   const { system, user } = buildExplainPrompt(profile, state, chosen, table);
-  const response = await callLLM(profile.provider, profile.model, [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ], profile.temperature, { type: 'json_object' });
-  const cleaned = stripMarkdownFences(response);
-  try {
-    const parsed = JSON.parse(cleaned) as { reasoning?: string };
-    if (parsed.reasoning) return parsed.reasoning;
-  } catch { /* fall through */ }
-  return chosen.label;
+  return withSpan(
+    'agent.explanation',
+    {
+      'agent.name': profile.name,
+      'agent.profile_id': profile.id,
+      'game.phase': state.phase,
+      'llm.provider': profile.provider,
+      'llm.model': profile.model,
+      'llm.temperature': profile.temperature,
+    },
+    async () => {
+      const response = await callLLM(profile.provider, profile.model, [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ], profile.temperature, { type: 'json_object' });
+      const cleaned = stripMarkdownFences(response);
+      try {
+        const parsed = JSON.parse(cleaned) as { reasoning?: string };
+        if (parsed.reasoning) return parsed.reasoning;
+      } catch { /* fall through */ }
+      return chosen.label;
+    }
+  );
 }
 
 function cardPoints(rank: Rank): number {

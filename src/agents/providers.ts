@@ -1,5 +1,7 @@
 // LLM Provider abstraction — maps provider configs to OpenAI-compatible API calls
 
+import { injectTraceContext, withSpan } from '@/lib/tracing';
+
 export interface ProviderConfig {
   baseURL: string;
   apiKey: string;
@@ -61,6 +63,7 @@ export async function callLLM(
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
   temperature: number = 0.3,
   responseFormat?: { type: 'json_object' },
+  attempt: number = 1,
 ): Promise<string> {
   const config = getProviderConfig(provider);
 
@@ -89,49 +92,70 @@ export async function callLLM(
     body.think = false;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // One span per HTTP call. Nested under the caller's `agent.decision` span;
+  // its W3C trace context is injected into the request so the backend
+  // (e.g. SGLang) nests its own spans under this one in Jaeger.
+  return withSpan(
+    'llm.call',
+    {
+      'llm.provider': provider,
+      'llm.model': model,
+      'llm.base_url': config.baseURL,
+      'llm.temperature': temperature,
+      'llm.attempt': attempt,
+    },
+    async (span) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const started = Date.now();
 
-  try {
-    const response = await fetch(`${config.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
-        ...config.headers,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+          ...config.headers,
+        };
+        injectTraceContext(headers);
 
-    clearTimeout(timeout);
+        const response = await fetch(`${config.baseURL}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`LLM call failed (${response.status}): ${errorText}`);
+        clearTimeout(timeout);
+        span.setAttribute('http.response.status_code', response.status);
+        span.setAttribute('llm.duration_ms', Date.now() - started);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`LLM call failed (${response.status}): ${errorText}`);
+        }
+
+        const data = await response.json();
+        const message = data.choices?.[0]?.message;
+        let content: string | undefined = message?.content;
+
+        // Some thinking models return the answer in reasoning_content when `content` is empty.
+        if (!content && typeof message?.reasoning_content === 'string') {
+          content = message.reasoning_content;
+        }
+
+        if (!content || typeof content !== 'string' || content.trim() === '') {
+          throw new Error(
+            'LLM returned empty response — this often happens with "thinking" models that use all tokens on reasoning. Use a non-thinking model or set LLM_MAX_TOKENS higher.'
+          );
+        }
+
+        return content;
+      } catch (error) {
+        clearTimeout(timeout);
+        if ((error as Error).name === 'AbortError') {
+          throw new Error(`LLM call timed out after ${timeoutMs}ms`);
+        }
+        throw error;
+      }
     }
-
-    const data = await response.json();
-    const message = data.choices?.[0]?.message;
-    let content: string | undefined = message?.content;
-
-    // Some thinking models return the answer in reasoning_content when `content` is empty.
-    if (!content && typeof message?.reasoning_content === 'string') {
-      content = message.reasoning_content;
-    }
-
-    if (!content || typeof content !== 'string' || content.trim() === '') {
-      throw new Error(
-        'LLM returned empty response — this often happens with "thinking" models that use all tokens on reasoning. Use a non-thinking model or set LLM_MAX_TOKENS higher.'
-      );
-    }
-
-    return content;
-  } catch (error) {
-    clearTimeout(timeout);
-    if ((error as Error).name === 'AbortError') {
-      throw new Error(`LLM call timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  }
+  );
 }

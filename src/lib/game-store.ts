@@ -9,6 +9,7 @@ import { getAgentProfile } from '@/agents/profiles';
 import type { AgentProfile } from '@/agents/profiles';
 import { getAgentDecision, getExplanation } from '@/agents/pipeline';
 import { log } from '@/lib/log';
+import { describeMove, withSpan } from '@/lib/tracing';
 
 // Early-concede is enabled by default; set ALLOW_CONCEDE=false to disable.
 const ALLOW_CONCEDE = process.env.ALLOW_CONCEDE !== 'false';
@@ -259,60 +260,74 @@ export async function runSingleAgentTurn(gameId: string): Promise<AgentAction | 
   game.locked = true;
   try {
     const profile = getAgentProfile(agentId);
-
-    // Card play can be decided by Monte-Carlo search, the LLM, or a hybrid of
-    // both (LLM decides with a search outcome table as guidance), per PLAY_MODE.
-    // The LLM still handles bidding, trump selection, and the rebid.
-    let move;
-    let reasoning;
     const phase = game.state.phase;
 
-    const isPlayPhase = phase === 'firstPhase' || phase === 'secondPhase';
-    if (isPlayPhase && PLAY_MODE === 'search') {
-      const result = safeSearch(game.state, player);
-      if (result) {
-        move = result.move;
-        reasoning = EXPLAIN
-          ? await explainSafely(profile, getPlayerView(game.state, player), result)
-          : result.reasoning;
-      } else {
-        ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
+    return await withSpan(
+      'agent.turn',
+      {
+        'game.id': gameId.slice(0, 8),
+        'game.player': player,
+        'game.phase': phase,
+        'game.trick_number': game.state.trickNumber,
+        'agent.profile_id': agentId,
+        'agent.name': profile.name,
+      },
+      async (span) => {
+        // Card play can be decided by Monte-Carlo search, the LLM, or a hybrid of
+        // both (LLM decides with a search outcome table as guidance), per PLAY_MODE.
+        // The LLM still handles bidding, trump selection, and the rebid.
+        let move;
+        let reasoning;
+
+        const isPlayPhase = phase === 'firstPhase' || phase === 'secondPhase';
+        if (isPlayPhase && PLAY_MODE === 'search') {
+          const result = safeSearch(game.state, player);
+          if (result) {
+            move = result.move;
+            reasoning = EXPLAIN
+              ? await explainSafely(profile, getPlayerView(game.state, player), result)
+              : result.reasoning;
+          } else {
+            ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
+          }
+        } else if (isPlayPhase && PLAY_MODE === 'hybrid') {
+          const table = safeEvaluate(game.state, player);
+          const view = getPlayerView(game.state, player);
+          // Restrict the LLM to the top-N search moves so it can't override with a
+          // clearly-inferior card. Non-card moves (e.g. showPair) stay legal.
+          const top = topMoves(table, HYBRID_TOP_N);
+          if (top.length > 0 && top.length < table.length) {
+            const allowed = new Set(top.map((m) => legalMoveKey(m.move)));
+            view.legalMoves = view.legalMoves.filter((m) =>
+              m.type === 'playCard' || m.type === 'callTrump'
+                ? allowed.has(legalMoveKey(m))
+                : true,
+            );
+          }
+          ({ move, reasoning } = await getAgentDecision(profile, view, top));
+        } else {
+          ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
+        }
+
+        span.setAttribute('agent.move', describeMove(move));
+        game.state = applyMove(game.state, move);
+        game.locked = false;
+
+        emitMove(gameId, 'agent-applied', move, {
+          player,
+          afterPlayer: game.state.currentPlayer,
+          afterPhase: game.state.phase,
+          afterTrickNumber: game.state.trickNumber,
+        });
+
+        return {
+          player,
+          agentName: profile.name,
+          move,
+          reasoning,
+        };
       }
-    } else if (isPlayPhase && PLAY_MODE === 'hybrid') {
-      const table = safeEvaluate(game.state, player);
-      const view = getPlayerView(game.state, player);
-      // Restrict the LLM to the top-N search moves so it can't override with a
-      // clearly-inferior card. Non-card moves (e.g. showPair) stay legal.
-      const top = topMoves(table, HYBRID_TOP_N);
-      if (top.length > 0 && top.length < table.length) {
-        const allowed = new Set(top.map((m) => legalMoveKey(m.move)));
-        view.legalMoves = view.legalMoves.filter((m) =>
-          m.type === 'playCard' || m.type === 'callTrump'
-            ? allowed.has(legalMoveKey(m))
-            : true,
-        );
-      }
-      ({ move, reasoning } = await getAgentDecision(profile, view, top));
-    } else {
-      ({ move, reasoning } = await getAgentDecision(profile, getPlayerView(game.state, player)));
-    }
-
-    game.state = applyMove(game.state, move);
-    game.locked = false;
-
-    emitMove(gameId, 'agent-applied', move, {
-      player,
-      afterPlayer: game.state.currentPlayer,
-      afterPhase: game.state.phase,
-      afterTrickNumber: game.state.trickNumber,
-    });
-
-    return {
-      player,
-      agentName: profile.name,
-      move,
-      reasoning,
-    };
+    );
   } catch (e) {
     game.locked = false;
     emitMove(gameId, 'agent-error', null, {
