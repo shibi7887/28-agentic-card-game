@@ -44,12 +44,21 @@ export function evaluateOpeningHand(hand: Card[]): OpeningHandEvaluation {
     (best, s) => Math.max(best, hand.filter((c) => c.suit === s).length),
     0,
   );
-  const lengthBonus = maxLen >= 4 ? 2 : maxLen === 3 ? 1 : 0;
+  // bonus for 3+ cards of a single suit (trump depth)
+  const lengthBonus = maxLen >= 4 ? 3 : maxLen === 3 ? 2 : 0;
+  // bonus for a perfect 4-card suit with (J, 9)
+  const perfectSuitBonus = ALL_SUITS.some(
+    (s) => hand.filter((c) => c.suit === s).length === 4 &&
+           hand.some((c) => c.suit === s && c.rank === 'J') &&
+           hand.some((c) => c.suit === s && c.rank === '9'),
+  )
+    ? 2
+    : 0;
 
   const jackCount = hand.filter((c) => c.rank === 'J').length;
   const jackBonus = jackCount >= 2 ? 2 : 0;
 
-  const score = points + j9Bonus + lengthBonus + jackBonus;
+  const score = points + j9Bonus + lengthBonus + jackBonus + perfectSuitBonus;
 
   let maxBid: number;
   let note: string;
@@ -63,10 +72,10 @@ export function evaluateOpeningHand(hand: Card[]): OpeningHandEvaluation {
     maxBid = 16;
     note = 'Strong hand with suit structure — 16 is the ceiling.';
   } else if (score <= 12) {
-    maxBid = 17;
+    maxBid = 18;
     note = 'Very strong hand — 17 only with exceptional 4-card strength.';
   } else {
-    maxBid = 18;
+    maxBid = 20;
     note = 'Exceptional hand — 18 is the maximum opening bid.';
   }
 
