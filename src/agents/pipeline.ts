@@ -10,11 +10,14 @@ import { log } from '@/lib/log';
 import { describeMove, withSpan } from '@/lib/tracing';
 
 interface AgentDecision {
-  action: string;
-  bidAmount?: number;
+  action?: string;
+  bidAmount?: number | string;
   cardSuit?: string;
   cardRank?: string;
   reasoning?: string;
+  // Some models use `move` or `type` as the action key instead of `action`.
+  move?: string;
+  type?: string;
 }
 
 /**
@@ -54,7 +57,7 @@ function clampOpeningBid(
 /**
  * Enforce the deterministic rebid cap: with all 8 cards seen, a 24+ bid is
  * a near-solo contract and must not exceed the hand's computed maximum.
- * Hands that don't support even 23 are forced to pass.
+ * Hands that don't support even 24 are forced to pass.
  */
 function clampRebid(
   name: string,
@@ -92,6 +95,47 @@ function stripMarkdownFences(text: string): string {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
   return cleaned.trim();
+}
+
+/**
+ * Extract the JSON decision from a raw LLM response. Reasoning models
+ * (gpt-oss, Qwen3, …) wrap their final answer after a
+ * `<|channel|>final<|message|>` marker inside the `content` field. Fall back to
+ * the first `{`…last `}` span, then to the raw text. Returns the first
+ * candidate that parses as JSON, else the raw cleaned text (so the caller's
+ * JSON.parse throws and triggers a corrective retry).
+ */
+export function extractJson(text: string): string {
+  const cleaned = stripMarkdownFences(text);
+  if (!cleaned) return cleaned;
+
+  const candidates: string[] = [];
+
+  const finalMarker = '<|channel|>final<|message|>';
+  const idx = cleaned.lastIndexOf(finalMarker);
+  if (idx !== -1) {
+    candidates.push(cleaned.slice(idx + finalMarker.length).trim());
+  }
+
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(cleaned.slice(firstBrace, lastBrace + 1));
+  }
+
+  candidates.push(cleaned);
+
+  for (const candidate of candidates) {
+    if (candidate) {
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {
+        // try the next candidate
+      }
+    }
+  }
+  return cleaned;
 }
 
 export async function getAgentDecision(
@@ -134,8 +178,8 @@ export async function getAgentDecision(
       'llm.temperature': profile.temperature,
     },
     async (span) => {
-      // Try up to 2 times only on JSON parse failures.
-      // Valid JSON with unmatched action goes straight to fallback.
+      // Retry up to 2 times on JSON parse failures AND on valid-JSON responses
+      // whose action doesn't map to a legal move (missing/wrong key, empty `{}`).
       let lastParseError: string | null = null;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
@@ -148,7 +192,7 @@ export async function getAgentDecision(
             attempt,
           );
 
-          const cleaned = stripMarkdownFences(response);
+          const cleaned = extractJson(response);
           const parsed: AgentDecision = JSON.parse(cleaned);
           const move = parseDecision(parsed, legalMoves);
 
@@ -175,11 +219,19 @@ export async function getAgentDecision(
             return { move, reasoning: parsed.reasoning || 'No reasoning provided' };
           }
 
-          // Valid JSON but action didn't match any legal move — no retry, go to fallback
+          // Valid JSON but no usable action (missing/wrong key, empty `{}`, etc.) —
+          // retry once with a corrective hint before falling back.
           const legalTypes = [...new Set(legalMoves.map(m => m.type))];
           log.warn(
-            `Agent ${profile.name} action "${parsed.action}" not legal. Legal: [${legalTypes.join(', ')}]. Using fallback.`
+            `Agent ${profile.name} action "${parsed.action}" not legal (attempt ${attempt}). Legal: [${legalTypes.join(', ')}].`
           );
+          if (attempt < 2) {
+            messages.push({
+              role: 'user' as const,
+              content: `Your response parsed as JSON but is missing a valid "action". Legal actions: [${legalTypes.join(', ')}]. Respond with ONLY valid JSON containing the required fields. No markdown, no extra text.`,
+            });
+            continue;
+          }
           break;
         } catch (error) {
           // JSON parse error or network issue — retry once
@@ -228,7 +280,7 @@ export async function getExplanation(
         { role: 'system', content: system },
         { role: 'user', content: user },
       ], profile.temperature, { type: 'json_object' });
-      const cleaned = stripMarkdownFences(response);
+      const cleaned = extractJson(response);
       try {
         const parsed = JSON.parse(cleaned) as { reasoning?: string };
         if (parsed.reasoning) return parsed.reasoning;
@@ -328,10 +380,15 @@ function smartFallback(
   return { move: legalMoves[0], reasoning: 'Fallback: generic' };
 }
 
-function parseDecision(decision: AgentDecision, legalMoves: LegalMove[]): LegalMove | null {
-  const { action, bidAmount, cardSuit, cardRank } = decision;
+export function parseDecision(decision: AgentDecision, legalMoves: LegalMove[]): LegalMove | null {
+  const rawAction = decision.action ?? decision.move ?? decision.type;
+  const action = typeof rawAction === 'string' ? rawAction.trim().toLowerCase() : '';
+  const bidAmount =
+    typeof decision.bidAmount === 'number' ? decision.bidAmount : Number(decision.bidAmount);
+  const cardSuit = decision.cardSuit?.trim();
+  const cardRank = decision.cardRank?.trim();
 
-  if (action === 'bid' && bidAmount) {
+  if (action === 'bid' && !Number.isNaN(bidAmount)) {
     return legalMoves.find(
       m => m.type === 'bid' && (m as { type: 'bid'; amount: number }).amount === bidAmount,
     ) || null;
@@ -341,19 +398,19 @@ function parseDecision(decision: AgentDecision, legalMoves: LegalMove[]): LegalM
     return legalMoves.find(m => m.type === 'pass') || null;
   }
 
-  if (action === 'callTrump') {
+  if (action === 'calltrump') {
     return legalMoves.find(m => m.type === 'callTrump') || null;
   }
 
-  if (action === 'showPair') {
+  if (action === 'showpair') {
     return legalMoves.find(m => m.type === 'showPair') || null;
   }
 
-  if (action === 'keepTrump') {
+  if (action === 'keeptrump') {
     return legalMoves.find(m => m.type === 'keepTrump') || null;
   }
 
-  if ((action === 'playCard' || action === 'selectTrump') && cardSuit && cardRank) {
+  if ((action === 'playcard' || action === 'selecttrump') && cardSuit && cardRank) {
     const card: Card = { suit: cardSuit as Suit, rank: cardRank as Rank };
     return legalMoves.find(
       m => (m.type === 'playCard' || m.type === 'selectTrump') &&

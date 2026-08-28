@@ -74,14 +74,14 @@ export function evaluateOpeningHand(hand: Card[]): OpeningHandEvaluation {
 }
 
 export interface RebidHandEvaluation {
-  maxRebid: number;  // highest sensible rebid (23–28); 22 means "pass — do not rebid"
+  maxRebid: number;  // highest sensible rebid (24–28); 22 means "pass — do not rebid"
   points: number;    // raw point total of the 8-card hand
   score: number;     // internal strength score
   note: string;      // human-readable rationale
 }
 
 /**
- * Evaluate the full 8-card hand for the REBID phase (raising to 23+).
+ * Evaluate the full 8-card hand for the REBID phase (raising to 24+).
  *
  * Unlike the opening bid (capped at 18), a rebid can reach 28. But a 24+
  * bid is a "Thani / solo" contract — the bidding team must capture nearly
@@ -91,7 +91,7 @@ export interface RebidHandEvaluation {
  *
  * Score = raw points + bonuses for suit length (trump depth), J+9 trump
  * pairs, and holding multiple jacks. Score → maxRebid:
- *   <14 → 22 (pass), <16 → 23, <18 → 24, <20 → 26, else → 28
+ *   <16 → 22 (pass), <18 → 24, <20 → 26, else → 28
  */
 export function evaluateRebidHand(hand: Card[]): RebidHandEvaluation {
   const points = countPoints(hand);
@@ -115,12 +115,9 @@ export function evaluateRebidHand(hand: Card[]): RebidHandEvaluation {
 
   let maxRebid: number;
   let note: string;
-  if (score < 14) {
+  if (score < 16) {
     maxRebid = 22;
     note = 'Balanced or point-light hand — pass the rebid; a 24+ will fail.';
-  } else if (score < 16) {
-    maxRebid = 23;
-    note = 'Decent hand — a 23 raise is the ceiling.';
   } else if (score < 18) {
     maxRebid = 24;
     note = 'Strong concentrated hand — 24 is defensible.';

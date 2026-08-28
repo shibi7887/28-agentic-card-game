@@ -59,7 +59,7 @@ describe('evaluateOpeningHand', () => {
 // ─── evaluateRebidHand ─────────────────────────────────────────────
 
 describe('evaluateRebidHand', () => {
-  it('balanced weak hand cannot rebid (caps below 23 → pass)', () => {
+  it('balanced weak hand cannot rebid (caps below 24 → pass)', () => {
     const hand = [
       c('hearts', 'A'), c('hearts', '10'), c('diamonds', 'K'), c('diamonds', 'Q'),
       c('clubs', '8'), c('clubs', '7'), c('spades', 'K'), c('spades', 'Q'),
@@ -72,7 +72,7 @@ describe('evaluateRebidHand', () => {
       c('hearts', 'J'), c('hearts', 'A'), c('diamonds', '9'), c('diamonds', 'A'),
       c('clubs', '10'), c('clubs', 'K'), c('spades', '9'), c('spades', 'Q'),
     ];
-    expect(evaluateRebidHand(hand).maxRebid).toBeLessThanOrEqual(23);
+    expect(evaluateRebidHand(hand).maxRebid).toBe(22);
   });
 
   it('strong concentrated trump hand supports a 24 rebid', () => {
@@ -83,12 +83,12 @@ describe('evaluateRebidHand', () => {
     expect(evaluateRebidHand(hand).maxRebid).toBeGreaterThanOrEqual(24);
   });
 
-  it('marginal hand — deep trump but few points — caps at 23 (no 24)', () => {
+  it('marginal hand — deep trump but few points — passes (caps below 24)', () => {
     const hand = [
       c('hearts', 'J'), c('hearts', '9'), c('hearts', 'A'), c('hearts', '10'), c('hearts', 'K'),
       c('spades', 'A'), c('spades', '10'), c('clubs', '8'),
     ];
-    expect(evaluateRebidHand(hand).maxRebid).toBe(23);
+    expect(evaluateRebidHand(hand).maxRebid).toBe(22);
   });
 
   it('two strong suits with high cards supports 26+', () => {

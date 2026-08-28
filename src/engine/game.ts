@@ -155,7 +155,7 @@ function getRebiddingMoves(state: GameState): LegalMove[] {
 
   const moves: LegalMove[] = [];
   const currentBid = state.bid?.amount ?? 0;
-  const minBid = Math.max(23, currentBid + 1);
+  const minBid = Math.max(24, currentBid + 1);
 
   for (let amount = minBid; amount <= 28; amount++) {
     moves.push({ type: 'bid', amount });
@@ -171,7 +171,9 @@ function getBiddingMoves(state: GameState): LegalMove[] {
   const moves: LegalMove[] = [];
   const currentMin = state.bid ? state.bid.amount + 1 : 14;
 
-  for (let amount = currentMin; amount <= 28; amount++) {
+  // Opening bids (4 cards) range 14–23. A 24+ bid requires the full 8-card
+  // hand and is only available in the rebid phase.
+  for (let amount = currentMin; amount <= 23; amount++) {
     moves.push({ type: 'bid', amount });
   }
 

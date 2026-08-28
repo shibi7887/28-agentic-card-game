@@ -130,13 +130,13 @@ describe('Game Creation', () => {
 // ─── Bidding ────────────────────────────────────────────────────────
 
 describe('Bidding', () => {
-  it('has legal moves starting at 14 and up to 28', () => {
+  it('has legal opening moves starting at 14 and up to 23 (24+ is rebid-only)', () => {
     const game = createGame(0);
     const moves = getLegalMoves(game);
     const bidMoves = moves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
-    expect(bidMoves.length).toBe(15);
+    expect(bidMoves.length).toBe(10);
     expect(bidMoves[0].amount).toBe(14);
-    expect(bidMoves[14].amount).toBe(28);
+    expect(bidMoves[9].amount).toBe(23);
   });
 
   it('first bidder cannot pass (no bid yet)', () => {

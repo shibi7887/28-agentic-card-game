@@ -178,7 +178,7 @@ Twenty-eight is a 4-player trick-taking card game played with 32 cards (J, 9, A,
 - **Phase 2:** After trump is called, any trump card beats all non-trump; must follow suit if possible.
 - **Locked trump:** In Phase 1, the bidder cannot play trump cards from hand when void — only discard non-trump or reveal the trump.
 - **Calling trump:** Whoever calls trump must then play a trump card if they hold one.
-- **Rebid:** After all 8 cards are dealt, the bidder or partner may raise to at least **23**. If the bid is raised, the bidder may **change the trump card**.
+- **Rebid:** After all 8 cards are dealt, the bidder or partner may raise to at least **24**. If the bid is raised, the bidder may **change the trump card**.
 - **Pair Rule:** Holding both K and Q of trump adjusts the bid by ±4 (bidder −4, defender +4).
 - **Match win:** First team to +6 game points wins; −6 loses.
 
@@ -195,8 +195,8 @@ The bidding team's game points change by the bracket value; the defending team's
 
 ### Controls
 
-- **Bidding:** Click a number (14–28) from the grid. Click PASS to drop out.
-- **Rebid:** After the 8-card deal, click 23+ to raise or PASS.
+- **Bidding:** Click a number (14–23) from the grid. Click PASS to drop out.
+- **Rebid:** After the 8-card deal, click 24+ to raise or PASS.
 - **Playing:** Click a card in your hand to select it, then click **Play Card**.
 - **Trump Selection:** After winning the bid, click a card from your hand.
 - **Change Trump:** After raising the rebid, click **Keep Trump** or **Change Trump**.
@@ -255,6 +255,7 @@ With `AGENT_EXPLAIN=true`, the `search` mode's Table Talk is rewritten by the LL
 # AGENT_USE_SEARCH=false   # legacy alias for AGENT_PLAY_MODE=llm
 # SEARCH_SAMPLES=150       # hidden-deal samples per move (higher = stronger, slower)
 # AGENT_EXPLAIN=true       # LLM explains search-chosen moves (Table Talk); off by default
+# LLM_ENABLE_THINKING=false  # true keeps Qwen3-style chain-of-thought (slower); off by default
 # LOG_LEVEL=info           # silent | error | warn | info | debug (debug shows trick traces)
 ```
 

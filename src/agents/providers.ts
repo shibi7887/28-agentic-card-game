@@ -82,14 +82,38 @@ export async function callLLM(
     max_tokens: maxTokens,
   };
 
-  if (responseFormat) {
+  // Reasoning models served by SGLang/vLLM (e.g. gpt-oss-20b) emit their
+  // chain-of-thought into `content`; SGLang's json_object constrained decoding
+  // then returns a stub `{}` instead of the requested JSON. Skip json_object
+  // for these local reasoning backends and rely on the prompt + robust JSON
+  // extraction in pipeline.ts. Cloud providers keep it (mature support).
+  const JSON_FORMAT_BACKENDS = new Set(['openai', 'deepseek', 'openrouter', 'ollama']);
+  const force = process.env.LLM_JSON_RESPONSE_FORMAT;
+  const sendJsonFormat =
+    !!responseFormat &&
+    (force === 'always' || (force !== 'never' && JSON_FORMAT_BACKENDS.has(provider)));
+  if (sendJsonFormat) {
     body.response_format = responseFormat;
   }
 
-  // Ollama: disable "thinking" mode if the model supports it, so reasoning
-  // tokens don't consume the budget or delay the answer.
-  if (provider === 'ollama') {
-    body.think = false;
+  // Disable "thinking" mode by default so reasoning tokens don't consume the
+  // token budget or delay the answer. Set LLM_ENABLE_THINKING=true to keep
+  // chain-of-thought for local thinking models (e.g. Qwen3).
+  const enableThinking = (process.env.LLM_ENABLE_THINKING || 'false').toLowerCase() === 'true';
+  if (!enableThinking) {
+    if (provider === 'ollama') {
+      body.think = false;
+    } else if (provider === 'sglang' || provider === 'vllm') {
+      body.chat_template_kwargs = { enable_thinking: false };
+    }
+  }
+
+  // gpt-oss reasoning effort (SGLang/vLLM): reduces the chain-of-thought the
+  // model emits, cutting generation latency. Valid: minimal | low | medium |
+  // high. Set LLM_REASONING_EFFORT to opt in (default is the model's "medium").
+  const reasoningEffort = process.env.LLM_REASONING_EFFORT;
+  if ((provider === 'sglang' || provider === 'vllm') && reasoningEffort) {
+    body.chat_template_kwargs = { reasoning_effort: reasoningEffort };
   }
 
   // One span per HTTP call. Nested under the caller's `agent.decision` span;
