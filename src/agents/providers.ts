@@ -104,16 +104,21 @@ export async function callLLM(
     if (provider === 'ollama') {
       body.think = false;
     } else if (provider === 'sglang' || provider === 'vllm') {
-      body.chat_template_kwargs = { enable_thinking: false };
+      // Merge (never overwrite) so a later reasoning_effort block can't
+      // clobber enable_thinking — otherwise Qwen3 silently falls back to full
+      // chain-of-thought and every request slows to tens of seconds.
+      body.chat_template_kwargs = { ...(body.chat_template_kwargs || {}), enable_thinking: false };
     }
   }
 
   // gpt-oss reasoning effort (SGLang/vLLM): reduces the chain-of-thought the
   // model emits, cutting generation latency. Valid: minimal | low | medium |
   // high. Set LLM_REASONING_EFFORT to opt in (default is the model's "medium").
+  // NOTE: this is a gpt-oss-20b knob only. Qwen3's chat template ignores it, so
+  // setting it with Qwen3 is a no-op — keep it unset (or use LLM_ENABLE_THINKING=false).
   const reasoningEffort = process.env.LLM_REASONING_EFFORT;
   if ((provider === 'sglang' || provider === 'vllm') && reasoningEffort) {
-    body.chat_template_kwargs = { reasoning_effort: reasoningEffort };
+    body.chat_template_kwargs = { ...(body.chat_template_kwargs || {}), reasoning_effort: reasoningEffort };
   }
 
   // One span per HTTP call. Nested under the caller's `agent.decision` span;

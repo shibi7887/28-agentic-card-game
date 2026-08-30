@@ -250,7 +250,7 @@ export async function getAgentDecision(
       // All retries exhausted — use smart fallback
       span.setAttribute('agent.fallback_used', true);
       if (lastParseError) span.setAttribute('llm.parse_error', lastParseError);
-      const fallback = smartFallback(profile.name, state, legalMoves);
+      const fallback = smartFallback(profile.name, state, legalMoves, table);
       span.setAttribute('agent.move', describeMove(fallback.move));
       return fallback;
     }
@@ -300,6 +300,7 @@ function smartFallback(
   name: string,
   state: PlayerViewState,
   legalMoves: LegalMove[],
+  table?: MoveEvaluation[],
 ): { move: LegalMove; reasoning: string } {
   // Prefer non-pass moves in bidding — but respect the deterministic opening-bid cap.
   const bidMoves = legalMoves.filter(m => m.type === 'bid') as { type: 'bid'; amount: number }[];
@@ -342,37 +343,54 @@ function smartFallback(
     return { move: { type: 'keepTrump' } as LegalMove, reasoning: 'Fallback: keep trump' };
   }
 
-  // For play: discard the LOWEST-VALUE card, never waste points.
+  // For play: when the LLM failed, prefer the Monte-Carlo search's top move if
+  // a table was computed (hybrid mode). The search is deterministic, always
+  // legal, and already honors the no-gift-points guard — far stronger than the
+  // naive heuristic below. Falls back to discarding the LOWEST-VALUE card only
+  // when no search result exists.
   const playMoves = legalMoves.filter(
     m => m.type === 'playCard' || m.type === 'selectTrump'
   ) as { type: 'playCard' | 'selectTrump'; card: Card }[];
 
   if (playMoves.length > 0) {
+    if (table && table.length > 0) {
+      const top = [...table].sort((a, b) => b.pMakeContract - a.pMakeContract)[0];
+      if (top && (top.move.type === 'playCard' || top.move.type === 'callTrump')) {
+        const pct = Math.round(top.pMakeContract * 100);
+        log.warn(`Agent ${name} falling back to search top move: ${top.label} (${pct}%)`);
+        return { move: top.move, reasoning: `Fallback: ${top.label} (${pct}% to make the bid)` };
+      }
+    }
+
     const leadSuit = state.currentTrick.leadSuit;
     const cards = playMoves.map(m => m.card);
 
     let chosen: Card;
+    let reason: string;
     if (leadSuit === null) {
       // Leading — dump the least valuable card (0-point, low rank)
       cards.sort((a, b) =>
         cardPoints(a.rank) - cardPoints(b.rank) || RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
       chosen = cards[0];
+      reason = 'Fallback: dump least valuable card';
     } else {
       const followers = cards.filter(c => c.suit === leadSuit);
       if (followers.length > 0) {
         // Must follow suit — play the lowest card of that suit (preserve high cards)
         followers.sort((a, b) => RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
         chosen = followers[0];
+        reason = 'Fallback: lowest card of led suit';
       } else {
         // Void — discard the lowest point-value card, never waste J/9/A/10
         cards.sort((a, b) =>
           cardPoints(a.rank) - cardPoints(b.rank) || RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
         chosen = cards[0];
+        reason = 'Fallback: discard lowest point value';
       }
     }
 
     log.warn(`Agent ${name} using fallback play: ${chosen.rank}${chosen.suit}`);
-    return { move: { type: 'playCard', card: chosen } as LegalMove, reasoning: 'Fallback: discard lowest value' };
+    return { move: { type: 'playCard', card: chosen } as LegalMove, reasoning: reason };
   }
 
   // Last resort: first legal move

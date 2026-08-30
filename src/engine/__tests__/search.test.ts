@@ -112,6 +112,135 @@ describe('Monte Carlo search', () => {
     expect(card.rank).toBe('J');
   });
 
+  it('never gifts a point card into an opponent-winning trick when a 0-point card is available', () => {
+    // Opponent (P3) leads hearts K; we (P2) are void in hearts. Phase 1: trump
+    // has no power, so no card can win the trick. The 9♣ (2 pts) must NOT be
+    // chosen over the 7♣ (0 pts) — a point dump just gifts points to the
+    // opponent. Sampling noise previously made the search pick the dump at random.
+    const state = makePlayState({
+      phase: 'firstPhase',
+      hands: [
+        [{ suit: 'hearts', rank: 'A' }, { suit: 'hearts', rank: '10' }, { suit: 'clubs', rank: 'Q' }],
+        [{ suit: 'hearts', rank: '9' }],
+        [{ suit: 'clubs', rank: '9' }, { suit: 'clubs', rank: '7' }],
+        [{ suit: 'hearts', rank: 'K' }],
+      ],
+      currentPlayer: 2 as PlayerIndex,
+      currentTrick: { cards: [null, null, null, { card: { suit: 'hearts', rank: 'K' }, player: 3 }], leadSuit: 'hearts' },
+      trumpSuit: 'diamonds',
+      trumpRevealed: false,
+      bid: { amount: 16, bidder: 3 as PlayerIndex },
+    });
+
+    const result = bestPlayDecision(state, 2, { samples: 60, rng: mulberry32(3) });
+    expect(result).not.toBeNull();
+    const card = (result!.move as { card: Card }).card;
+    // Must give the trick away with the worthless 7♣, never the 2-point 9♣.
+    expect(card.rank).toBe('7');
+  });
+
+  it('does not clamp a winning point card (trump) in an opponent-winning trick', () => {
+    // Opponent (P3) leads hearts K; we (P2) are void in hearts and hold the
+    // trump 9♦, which WINS the trick. The guard must only penalize point cards
+    // that lose — a winning trump must stay the preferred play.
+    const state = makePlayState({
+      hands: [
+        [{ suit: 'hearts', rank: 'A' }],
+        [{ suit: 'clubs', rank: '7' }],
+        [{ suit: 'diamonds', rank: '9' }, { suit: 'clubs', rank: '8' }],
+        [{ suit: 'hearts', rank: 'K' }],
+      ],
+      currentPlayer: 2 as PlayerIndex,
+      currentTrick: { cards: [null, null, null, { card: { suit: 'hearts', rank: 'K' }, player: 3 }], leadSuit: 'hearts' },
+      trumpSuit: 'diamonds',
+      trumpRevealed: true,
+    });
+
+    const result = bestPlayDecision(state, 2, { samples: 60, rng: mulberry32(9) });
+    expect(result).not.toBeNull();
+    const card = (result!.move as { card: Card }).card;
+    // The winning trump 9♦ is not a "gift" — it must be chosen over the 8♣.
+    expect(card.suit).toBe('diamonds');
+    expect(card.rank).toBe('9');
+  });
+
+  it('leads the Jack of a suit before its A/9/10 when opening a fresh suit', () => {
+    // We (P2) open the first trick holding only clubs: J♣, A♣, 9♣, 10♣.
+    // It is the FIRST round of clubs (never led, no clubs out) — the Jack
+    // (3 pts) must outrank the A/9/10 of the same suit, because opponents still
+    // hold clubs and must follow suit; saving it for a later round lets a
+    // now-void opponent cut it with trump.
+    const state = makePlayState({
+      phase: 'firstPhase',
+      hands: [
+        [{ suit: 'hearts', rank: 'J' }, { suit: 'hearts', rank: '9' }, { suit: 'hearts', rank: 'A' }, { suit: 'hearts', rank: '10' }],
+        [{ suit: 'spades', rank: '9' }, { suit: 'spades', rank: 'A' }, { suit: 'spades', rank: '10' }, { suit: 'spades', rank: 'K' }],
+        [{ suit: 'clubs', rank: 'J' }, { suit: 'clubs', rank: 'A' }, { suit: 'clubs', rank: '9' }, { suit: 'clubs', rank: '10' }],
+        [{ suit: 'diamonds', rank: 'J' }, { suit: 'diamonds', rank: '9' }, { suit: 'diamonds', rank: 'A' }, { suit: 'diamonds', rank: '10' }],
+      ],
+      currentPlayer: 2 as PlayerIndex,
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+      trumpSuit: 'hearts',
+      trumpRevealed: false,
+      bid: { amount: 15, bidder: 0 as PlayerIndex },
+    });
+
+    const moves = evaluateMoves(state, 2, { samples: 60, rng: mulberry32(11) });
+    const score = (rank: string) =>
+      moves.find((m) => (m.move as { card: Card }).card.rank === rank)!.pMakeContract;
+    // The Jack must strictly outrank the A/9/10 of the same suit when leading.
+    const jack = score('J');
+    expect(jack).toBeGreaterThan(score('A'));
+    expect(jack).toBeGreaterThan(score('9'));
+    expect(jack).toBeGreaterThan(score('10'));
+
+    const result = bestPlayDecision(state, 2, { samples: 60, rng: mulberry32(11) });
+    expect((result!.move as { card: Card }).card.rank).toBe('J');
+  });
+
+  it('does not force the Jack on a later round of a suit an opponent is void in', () => {
+    // Round 2 of clubs: P3 led 7♣ (trick 1); P1 was void and discarded 8♠;
+    // P2 won with A♣. Now P2 leads clubs again holding J♣ + 10♣, with trump
+    // spades active — P1 (known void in clubs) can cut the J with trump.
+    // Card-counting says this is no longer a safe first round, so the guard
+    // must NOT force J♣ to outrank 10♣ (the search EV decides).
+    const state = makePlayState({
+      phase: 'secondPhase',
+      hands: [
+        [{ suit: 'spades', rank: 'J' }, { suit: 'clubs', rank: 'Q' }, { suit: 'diamonds', rank: '7' }, { suit: 'hearts', rank: '7' }],
+        [{ suit: 'spades', rank: '8' }, { suit: 'hearts', rank: '9' }, { suit: 'hearts', rank: 'A' }, { suit: 'diamonds', rank: 'A' }],
+        [{ suit: 'clubs', rank: 'J' }, { suit: 'clubs', rank: '10' }, { suit: 'diamonds', rank: '9' }, { suit: 'diamonds', rank: '8' }],
+        [{ suit: 'clubs', rank: '7' }, { suit: 'hearts', rank: 'K' }, { suit: 'hearts', rank: '10' }, { suit: 'spades', rank: 'K' }],
+      ],
+      tricks: [
+        {
+          cards: [
+            { card: { suit: 'clubs', rank: '7' }, player: 3 },
+            { card: { suit: 'clubs', rank: 'A' }, player: 2 },
+            { card: { suit: 'spades', rank: '8' }, player: 1 },
+            { card: { suit: 'clubs', rank: 'Q' }, player: 0 },
+          ],
+          winner: 2 as PlayerIndex,
+          points: 1,
+          leadSuit: 'clubs',
+        },
+      ],
+      currentPlayer: 2 as PlayerIndex,
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+      trumpSuit: 'spades',
+      trumpRevealed: true,
+    });
+
+    const moves = evaluateMoves(state, 2, { samples: 60, rng: mulberry32(21) });
+    const jack = moves.find((m) => (m.move as { card: Card }).card.rank === 'J');
+    const ten = moves.find((m) => (m.move as { card: Card }).card.rank === '10');
+    expect(jack).toBeDefined();
+    expect(ten).toBeDefined();
+    // The guard must NOT have clamped 10♣ to exactly (J - 1e-3); its score is
+    // the search's own EV on this later round.
+    expect(Math.abs(ten!.pMakeContract - (jack!.pMakeContract - 1e-3))).toBeGreaterThan(1e-9);
+  });
+
   it('roundWin scores contract success from the deciding player perspective', () => {
     const tricks: Trick[] = [
       { cards: [], winner: 0, points: 10, leadSuit: 'hearts' },

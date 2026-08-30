@@ -311,6 +311,108 @@ function playout(
 
 // ─── Move evaluation ────────────────────────────────────────────────
 
+/**
+ * "Never gift points" guard: when following a trick (not leading), void in the
+ * led suit, and an OPPONENT currently holds the winning card, a point-card
+ * discard (J/9/A/10) that cannot win the trick must never outrank a card that
+ * gives the trick away cheaply (a zero-point discard, or a card that actually
+ * wins). Without this, Monte-Carlo sampling noise lets a 2-point dump beat a
+ * 0-point dump essentially at random, gifting the opponents points.
+ *
+ * Partner-winning tricks are untouched: if a teammate holds the winner, the
+ * opponent check fails and point-card fattening stays legal.
+ */
+function applyNoGiftGuard(
+  state: GameState,
+  playerIndex: PlayerIndex,
+  moves: MoveEvaluation[],
+): MoveEvaluation[] {
+  const leadSuit = state.currentTrick.leadSuit;
+  if (leadSuit === null) return moves;
+
+  const allLegal = getLegalMoves(state);
+  const isVoid = !allLegal.some((m) => m.type === 'playCard' && m.card.suit === leadSuit);
+  if (!isVoid) return moves;
+
+  const winner = currentTrickWinner(state);
+  if (!winner || getTeam(winner.player) === getTeam(playerIndex)) return moves;
+
+  const gifted = moves.filter(
+    (m) =>
+      m.move.type === 'playCard' &&
+      rankPoints((m.move as { card: Card }).card.rank) > 0 &&
+      !beatsWinner((m.move as { card: Card }).card, playerIndex, state),
+  );
+  if (gifted.length === 0) return moves;
+
+  const safe = moves.filter((m) => !gifted.includes(m));
+  if (safe.length === 0) return moves;
+
+  const bestSafe = Math.max(...safe.map((m) => m.pMakeContract));
+  return moves.map((m) =>
+    gifted.includes(m)
+      ? { ...m, pMakeContract: Math.min(m.pMakeContract, bestSafe - 1e-3) }
+      : m,
+  );
+}
+
+/** Cards of each suit already played (completed tricks + current trick). */
+function playedCountBySuit(state: GameState): Record<Suit, number> {
+  const played: Record<Suit, number> = { hearts: 0, diamonds: 0, clubs: 0, spades: 0 };
+  for (const t of state.tricks) {
+    for (const tc of t.cards) played[tc.card.suit]++;
+  }
+  for (const c of state.currentTrick.cards) {
+    if (c) played[c.card.suit]++;
+  }
+  return played;
+}
+
+/**
+ * "Cash the Jack first" guard: when LEADING a NEW suit (its first round), a
+ * point-bearing card (A/9/10) of that suit must never outrank its Jack. Early
+ * in a suit the opponents still hold it and must follow suit, so the Jack
+ * (3 pts) wins safely; saving it for a later round lets a now-void opponent cut
+ * it with trump.
+ *
+ * Card-counting: the rule fires only while the suit has never been led and few
+ * of its cards are out (<3 played). Once the suit has been led — or opponents
+ * have shed most of it as discards — a void opponent can trump the Jack, and
+ * the search's own EV must decide. Zero-point probes (7/8/K/Q) are left to the
+ * search.
+ */
+function applyLeadJackFirst(
+  state: GameState,
+  playerIndex: PlayerIndex,
+  moves: MoveEvaluation[],
+): MoveEvaluation[] {
+  if (state.currentTrick.leadSuit !== null) return moves;
+
+  const ledSuits = new Set<Suit>(state.tricks.map((t) => t.leadSuit));
+  const played = playedCountBySuit(state);
+  const hand = state.hands[playerIndex];
+
+  const jackScores: Partial<Record<Suit, number>> = {};
+  for (const m of moves) {
+    if (m.move.type === 'playCard' && m.move.card.rank === 'J') {
+      jackScores[m.move.card.suit] = m.pMakeContract;
+    }
+  }
+  if (Object.keys(jackScores).length === 0) return moves;
+
+  const holdsJack = (s: Suit): boolean => hand.some((c) => c.suit === s && c.rank === 'J');
+
+  return moves.map((m) => {
+    if (m.move.type !== 'playCard' || m.move.card.rank === 'J') return m;
+    const card = m.move.card;
+    if (!holdsJack(card.suit) || rankPoints(card.rank) === 0) return m;
+    if (ledSuits.has(card.suit) || played[card.suit] >= 3) return m; // later round — let EV decide
+    const jackScore = jackScores[card.suit];
+    if (jackScore === undefined) return m;
+    return { ...m, pMakeContract: jackScore - 1e-3 };
+  });
+}
+
 function evaluateMove(
   state: GameState,
   playerIndex: PlayerIndex,
@@ -349,10 +451,12 @@ export function evaluateMoves(
   const candidates = getLegalMoves(state).filter(
     (m) => m.type === 'playCard' || m.type === 'callTrump',
   );
-  return candidates.map((move) => {
+  const base = candidates.map((move) => {
     const { pMakeContract, expectedPoints } = evaluateMove(state, playerIndex, move, samples, rng);
     return { move, pMakeContract, expectedPoints, label: moveLabel(move) };
   });
+  const noGift = applyNoGiftGuard(state, playerIndex, base);
+  return applyLeadJackFirst(state, playerIndex, noGift);
 }
 
 /**

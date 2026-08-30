@@ -367,6 +367,76 @@ describe('Legal Moves - Play', () => {
     const playCards = moves.filter(m => m.type === 'playCard').map(m => (m as { type: 'playCard'; card: Card }).card);
     expect(playCards).toHaveLength(3); // A♥, J♦, K♠ all legal — trump is optional
   });
+
+  it('Phase 1: bidder cannot play the hidden trump card to follow the trump suit', () => {
+    // The trump suit (diamonds) is led and the bidder (P3)'s ONLY diamond is the
+    // face-down trump card (9♦). The Locked-Trump rule forbids playing it until
+    // the trump is called — the bidder must discard or callTrump instead.
+    const state: GameState = {
+      ...createGame(0),
+      phase: 'firstPhase',
+      trumpSuit: 'diamonds',
+      hiddenTrumpCard: { suit: 'diamonds', rank: '9' },
+      trumpCard: { suit: 'diamonds', rank: '9' },
+      trumpRevealed: false,
+      currentTrick: {
+        cards: [
+          { card: { suit: 'diamonds', rank: '10' }, player: 2 },
+          { card: { suit: 'diamonds', rank: '8' }, player: 1 },
+          { card: { suit: 'diamonds', rank: 'J' }, player: 0 },
+          null,
+        ],
+        leadSuit: 'diamonds',
+      },
+      hands: [
+        [], [], [],
+        [
+          { suit: 'diamonds', rank: '9' },
+          { suit: 'clubs', rank: 'A' },
+          { suit: 'hearts', rank: '7' },
+        ],
+      ] as [Card[], Card[], Card[], Card[]],
+      currentPlayer: 3,
+      bid: { amount: 15, bidder: 3 },
+    } as GameState;
+
+    const moves = getLegalMoves(state);
+    const playCards = moves.filter(m => m.type === 'playCard').map(m => (m as { type: 'playCard'; card: Card }).card);
+    // The hidden 9♦ must NOT be a legal play to follow the diamond lead.
+    expect(playCards.some(c => c.suit === 'diamonds' && c.rank === '9')).toBe(false);
+    // The bidder may call trump or discard a non-trump card.
+    expect(moves.some(m => m.type === 'callTrump')).toBe(true);
+    expect(playCards.some(c => c.suit === 'clubs' && c.rank === 'A')).toBe(true);
+  });
+
+  it('Phase 1: bidder with only trump cards cannot lead the hidden trump card', () => {
+    // Deadlock case: the bidder's hand is only trump cards (A♦) plus the hidden
+    // 9♦. They may still lead the A♦ (trump is allowed when it is all they hold),
+    // but the hidden card itself must not be leadable.
+    const state: GameState = {
+      ...createGame(0),
+      phase: 'firstPhase',
+      trumpSuit: 'diamonds',
+      hiddenTrumpCard: { suit: 'diamonds', rank: '9' },
+      trumpCard: { suit: 'diamonds', rank: '9' },
+      trumpRevealed: false,
+      currentTrick: { cards: [null, null, null, null], leadSuit: null },
+      hands: [
+        [], [], [],
+        [
+          { suit: 'diamonds', rank: '9' },
+          { suit: 'diamonds', rank: 'A' },
+        ],
+      ] as [Card[], Card[], Card[], Card[]],
+      currentPlayer: 3,
+      bid: { amount: 15, bidder: 3 },
+    } as GameState;
+
+    const moves = getLegalMoves(state);
+    const playCards = moves.filter(m => m.type === 'playCard').map(m => (m as { type: 'playCard'; card: Card }).card);
+    expect(playCards.some(c => c.rank === '9' && c.suit === 'diamonds')).toBe(false);
+    expect(playCards.some(c => c.rank === 'A' && c.suit === 'diamonds')).toBe(true);
+  });
 });
 
 // ─── Player View ───────────────────────────────────────────────────

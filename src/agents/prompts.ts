@@ -128,6 +128,9 @@ SCORING (game points, by bid bracket):
 - Bid 28: gains +4 if successful, loses −5 if failed.
 
 STRATEGY:
+- CARD COMPARISON — a card only beats another if it is HIGHER in the SAME suit (or is trump in Phase 2). An off-suit card NEVER beats the led suit: a ♣ can never win a trick led with ♥.
+- LEADING a new suit — cash the Jack first, but COUNT the suit: on the FIRST lead of a suit (it has not been led before and few of its cards are out), if you hold its J plus a point card of the same suit (A/9/10), lead the J — opponents still hold the suit and must follow, so it wins its 3 points safely. Once a suit has already been led, or opponents have shed most of it, a now-void opponent can cut the J with trump — on later rounds prefer a low card or save the J. Count cards: use the CARD MEMORY below to track which cards of each suit have been played, so you know whether a suit is still "safe" to lead.
+- NEVER gift points: if an OPPONENT is winning the current trick and you cannot take it, throw your lowest worthless card (7/8/K/Q) — never dump a point card (J/9/A/10) into a trick the opponent will win.
 - Fattening trick: if your partner is clearly winning the trick and you cannot follow suit, discard a high point card (9=2 or 10=1) to deposit points into your team's win — but only if you are confident your partner wins.
 - Silent discard: if your partner is winning and you hold strong trumps, discard an off-suit card rather than calling trump, to keep your trump hidden for a bigger cut later.
 - Defensive void trap: as a defender, do NOT call trump on a low card; wait until the bidder leads a high-value card (A or 10) before revealing trump, so your cut steals major points.
@@ -299,7 +302,7 @@ Consider your partner's and opponents' likely hands.`;
     ? `SIMULATED OUTCOME TABLE (Monte-Carlo estimates for your legal moves):
 ${table.map((m) => `- ${m.label}: ${Math.round(m.pMakeContract * 100)}% to make the bid (expected ${m.expectedPoints.toFixed(1)} pts)`).join('\n')}
 
-CRITICAL — trust the simulation. The table already applies the exact card ranking (J is HIGHEST, then 9, A, 10, K, Q, 8, 7 — note 9 does NOT beat J). A card beats another only if its rank is higher, or it is trump in Phase 2. Do not override the top move merely because you disagree about card strength; deviate only for a clear strategic reason (conserving a card, partner coordination).`
+CRITICAL — trust the simulation's card-strength estimates. The table already applies the exact card ranking (J is HIGHEST, then 9, A, 10, K, Q, 8, 7 — note 9 does NOT beat J). A card beats another only if its rank is higher, or it is trump in Phase 2. You may choose any legal card, but do not override the top move merely because you disagree about card strength; deviate only for a clear strategic reason (conserving a card, partner coordination).`
     : '';
 
   const user = `CURRENT GAME STATE:

@@ -207,34 +207,37 @@ function getFirstPhaseMoves(state: GameState): LegalMove[] {
   const isBidder = state.currentPlayer === state.bid?.bidder;
 
   if (leadSuit === null) {
-    // Leading a trick — the bidder cannot lead trump until it is declared.
-    // If that restriction would leave the bidder with no legal card at all
-    // (a hand of only trump + the hidden card), fall back to any playable card
-    // so the game can never deadlock.
+    // Leading a trick — the bidder cannot lead trump until it is declared, and
+    // the face-down trump card is never playable in Phase 1. If the restriction
+    // would leave the bidder with no legal card at all (a hand of only trump +
+    // the hidden card), fall back to any playable non-hidden card so the game
+    // can never deadlock.
     const leadable = hand.filter(card =>
       !(isBidder && state.trumpSuit && card.suit === state.trumpSuit && !state.trumpLedThisTrick) &&
       !cardEquals(card, state.hiddenTrumpCard),
     );
-    // If the restriction would leave the bidder with no legal card at all,
-    // fall back to any playable card — including the hidden trump if it is the
-    // only card left — so the game can never deadlock.
-    const source = leadable.length > 0 ? leadable : hand;
+    // Deadlock fallback: allow a trump lead (all the bidder holds), but still
+    // exclude the hidden card unless it is the literal only card in hand.
+    const fallback = hand.filter(card => !cardEquals(card, state.hiddenTrumpCard));
+    const source = leadable.length > 0 ? leadable : fallback.length > 0 ? fallback : hand;
     for (const card of source) {
       moves.push({ type: 'playCard', card });
     }
   } else {
     // Following
     const followingCards = getCardsOfSuit(hand, leadSuit);
-    if (followingCards.length > 0) {
-      const followable = followingCards.filter(card => !cardEquals(card, state.hiddenTrumpCard));
-      // If the only card that can follow is the hidden trump card, allow it
-      // rather than leave the player with no legal move.
-      const source = followable.length > 0 ? followable : followingCards;
-      for (const card of source) {
+    // The bidder's hidden trump card is face-down and NOT playable until the
+    // trump is called (Locked-Trump rule). If the only card that could follow
+    // the led suit is the hidden trump card, the bidder is effectively void:
+    // they must discard a non-trump card or call trump — never reveal it.
+    const followable = followingCards.filter(card => !cardEquals(card, state.hiddenTrumpCard));
+    if (followable.length > 0) {
+      for (const card of followable) {
         moves.push({ type: 'playCard', card });
       }
     } else {
-      // Cannot follow suit — can discard or call trump.
+      // Cannot follow suit (or only the hidden trump card could) — can discard
+      // or call trump.
       // The bidder's "locked trump" rule: in Phase 1, when void in a NON-trump
       // led suit, the bidder may NOT play trump cards from hand. They may only
       // discard a non-trump card or reveal the trump card (callTrump).
